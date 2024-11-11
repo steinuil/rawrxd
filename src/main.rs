@@ -1,14 +1,33 @@
 mod decompress;
+mod format;
+mod rarvm;
 
 use std::{
-    fs::{self, File},
-    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
+    fs,
+    io::{self, BufReader, Seek, SeekFrom},
 };
+
+fn parse_dos_time(dos_time: u32) -> time::PrimitiveDateTime {
+    let second = ((dos_time & 0x1f) * 2) as u8;
+    let minute = ((dos_time >> 5) & 0x3f) as u8;
+    let hour = ((dos_time >> 11) & 0x1f) as u8;
+    let time = time::Time::from_hms(hour, minute, second).unwrap();
+    let day = ((dos_time >> 16) & 0x1f) as u8;
+    let month = ((dos_time >> 21) & 0x0f) as u8;
+    let year = ((dos_time >> 25) + 1980) as i32;
+    let date = time::Date::from_calendar_date(year, month.try_into().unwrap(), day).unwrap();
+    time::PrimitiveDateTime::new(date, time)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
+    /// RAR 1.4
     Version14,
+
+    /// RAR 4
     Version15,
+
+    /// RAR 5
     Version50,
 }
 
@@ -89,7 +108,7 @@ impl MainBlock {
         println!("- type: main");
         println!("  position: {:#x}", self.position);
         println!("  size: {}", self.header_size);
-        println!("  crc: {:#04x}", self.crc);
+        println!("  crc: {:04X}", self.crc);
         println!("  flags: {:#016b}", self.flags.0);
         println!("  high_pos_av: {}", self.high_pos_av);
         println!("  pos_av: {:#x}", self.pos_av);
@@ -100,8 +119,14 @@ impl MainBlock {
 pub struct FileBlock {
     pub position: u64,
     pub header_size: u64,
-    pub file_size: u64,
+
+    pub packed_file_size: u64,
+
+    pub unpacked_file_size: u64,
+
     pub mtime: time::PrimitiveDateTime,
+    pub crc32: u32,
+    pub attributes: u32,
     pub file_name: Vec<u8>,
     pub host_system: HostSystem,
 }
@@ -112,11 +137,14 @@ impl FileBlock {
         println!("  position: {:#x}", self.position);
         println!("  header_size: {}", self.header_size);
         println!("  host_system: {:?}", self.host_system);
+        println!("  crc32: {:08X}", self.crc32);
+        println!("  attributes: {:032b}", self.attributes);
         println!(
             "  file_name: {}",
             std::str::from_utf8(&self.file_name).unwrap()
         );
-        println!("  file_size: {}", self.file_size);
+        println!("  packed_file_size: {}", self.packed_file_size);
+        println!("  unpacked_file_size: {}", self.unpacked_file_size);
         println!("  mtime: {}", self.mtime);
     }
 }
@@ -126,7 +154,8 @@ pub struct ServiceBlock {
     pub position: u64,
     pub header_size: u64,
     pub name: Vec<u8>,
-    pub data: Vec<u8>,
+    pub data_size: u64,
+    // pub data: Vec<u8>,
 }
 
 impl ServiceBlock {
@@ -134,8 +163,11 @@ impl ServiceBlock {
         println!("- type: service");
         println!("  position: {:#x}", self.position);
         println!("  header_size: {}", self.header_size);
-        println!("  data_size: {}", self.data.len());
-        println!("  name: {}", std::str::from_utf8(&self.name).unwrap());
+        println!("  data_size: {}", self.data_size);
+        println!(
+            "  name: {}",
+            std::str::from_utf8(&self.name).unwrap_or_default()
+        );
     }
 }
 
@@ -157,7 +189,7 @@ impl EndArchiveBlock {
         println!("  is_last_volume: {}", self.flags.is_last_volume());
         println!("  has_rev_space: {}", self.flags.has_rev_space());
         if let Some(data_crc) = self.data_crc {
-            println!("  crc: {:#08x}", data_crc);
+            println!("  crc: {:08X}", data_crc);
         }
         if let Some(volume_number) = self.volume_number {
             println!("  volume_number: {}", volume_number);
@@ -170,6 +202,7 @@ pub enum Block {
     File(FileBlock),
     Service(ServiceBlock),
     EndArchive(EndArchiveBlock),
+    Unrecognized(u8, u64, u64),
 }
 
 impl Block {
@@ -179,15 +212,17 @@ impl Block {
             Block::File(block) => block.position,
             Block::Service(block) => block.position,
             Block::EndArchive(block) => block.position,
+            Block::Unrecognized(_, position, _) => *position,
         }
     }
 
     pub fn size(&self) -> u64 {
         match self {
             Block::Main(block) => block.header_size,
-            Block::File(block) => block.header_size + block.file_size,
+            Block::File(block) => block.header_size + block.packed_file_size,
             Block::Service(block) => block.header_size,
             Block::EndArchive(block) => block.header_size,
+            Block::Unrecognized(_, _, size) => *size,
         }
     }
 
@@ -197,6 +232,9 @@ impl Block {
             Block::File(block) => block.print_info(),
             Block::Service(block) => block.print_info(),
             Block::EndArchive(block) => block.print_info(),
+            Block::Unrecognized(id, _, _) => {
+                println!("- type: {:#x}", id);
+            }
         }
     }
 }
@@ -341,21 +379,39 @@ impl TryFrom<u8> for HostSystem {
 
 // RAR 1.5 - 4.x header types.
 mod rar15 {
+    /// HEAD3_MARK
     pub const MARKER: u8 = 0x72;
+
+    /// HEAD3_MAIN
     pub const MAIN: u8 = 0x73;
+
+    /// HEAD3_FILE
     pub const FILE: u8 = 0x74;
+
+    /// HEAD3_SERVICE
     pub const SERVICE: u8 = 0x7a;
+
+    /// HEAD3_ENDARC
     pub const END_ARCHIVE: u8 = 0x7b;
 
-    // RAR 2.9 and earlier
-    pub const COMMENT: u8 = 0x75;
-    pub const AUTHENTICITY_VERIFICATION: u8 = 0x76;
+    /// HEAD3_75
+    pub const OLD_COMMENT: u8 = 0x75;
+
+    /// HEAD3_AV
+    pub const OLD_AUTHENTICITY_VERIFICATION1: u8 = 0x76;
+
+    /// HEAD3_SIGN
+    pub const OLD_AUTHENTICITY_VERIFICATION2: u8 = 0x79;
+
+    /// HEAD3_OLDSERVICE
     pub const OLD_SERVICE: u8 = 0x77;
 
-    // ?? also called RR_OLD
-    pub const PROTECT: u8 = 0x78;
-    // old AV?
-    pub const SIGN: u8 = 0x79;
+    /// HEAD3_PROTECT
+    pub const OLD_RECOVERY_RECORD: u8 = 0x78;
+
+    pub mod flags {
+        pub const LARGE_FILE: u16 = 0x100;
+    }
 }
 
 pub fn read_block15<T: io::Read + Seek>(reader: &mut T) -> io::Result<Block> {
@@ -393,23 +449,14 @@ pub fn read_block15<T: io::Read + Seek>(reader: &mut T) -> io::Result<Block> {
             Ok(Block::Main(block))
         }
         rar15::FILE => {
-            let data_size = read_u32(reader)?;
-            let low_unp_size = read_u32(reader)?;
+            let low_data_size = read_u32(reader)? as u64;
+            let low_unpacked_size = read_u32(reader)? as u64;
             let host_system: HostSystem = read_u8(reader)?.try_into().unwrap();
 
             let file_crc32 = read_u32(reader)?;
             let file_time = {
                 let dos_time = read_u32(reader)?;
-                let second = ((dos_time & 0x1f) * 2) as u8;
-                let minute = ((dos_time >> 5) & 0x3f) as u8;
-                let hour = ((dos_time >> 11) & 0x1f) as u8;
-                let time = time::Time::from_hms(hour, minute, second).unwrap();
-                let day = ((dos_time >> 16) & 0x1f) as u8;
-                let month = ((dos_time >> 21) & 0x0f) as u8;
-                let year = ((dos_time >> 25) + 1980) as i32;
-                let date =
-                    time::Date::from_calendar_date(year, month.try_into().unwrap(), day).unwrap();
-                time::PrimitiveDateTime::new(date, time)
+                parse_dos_time(dos_time)
             };
             let unp_ver = read_u8(reader)?;
 
@@ -417,23 +464,29 @@ pub fn read_block15<T: io::Read + Seek>(reader: &mut T) -> io::Result<Block> {
             let name_size = read_u16(reader)? as usize;
             let file_attr = read_u32(reader)?;
 
-            // Large file
-            if flags & 0x100 != 0 {
-                let high_pack_size = read_u32(reader)?;
-                let high_unp_size = read_u32(reader)?;
-            }
+            let (data_size, unpacked_size) = if flags & rar15::flags::LARGE_FILE != 0 {
+                let high_data_size = read_u32(reader)? as u64;
+                let high_unpacked_size = read_u32(reader)? as u64;
+
+                (
+                    (high_data_size >> 4) | low_data_size,
+                    (high_unpacked_size >> 4) | low_unpacked_size,
+                )
+            } else {
+                (low_data_size, low_unpacked_size)
+            };
 
             let mut file_name = vec![0; name_size];
             reader.read_exact(&mut file_name)?;
-            // let name = String::from_utf8(file_name).unwrap();
-            // println!("{}", name);
 
-            // Ok(head_size as usize + data_size as usize)
             Ok(Block::File(FileBlock {
                 position,
                 header_size: head_size as u64,
-                file_size: data_size as u64,
+                packed_file_size: data_size,
+                unpacked_file_size: unpacked_size,
                 mtime: file_time,
+                crc32: file_crc32,
+                attributes: file_attr,
                 file_name,
                 host_system,
             }))
@@ -460,18 +513,14 @@ pub fn read_block15<T: io::Read + Seek>(reader: &mut T) -> io::Result<Block> {
             let mut file_name = vec![0; name_size];
             reader.read_exact(&mut file_name)?;
 
-            // let name = String::from_utf8(file_name.to_owned()).unwrap();
-            // println!("{}", name);
-
             // Ok(head_size as usize + data_size as usize)
             // panic!("a");
 
             Ok(Block::Service(ServiceBlock {
                 position,
                 header_size: head_size as u64,
-                // data_size: data_size as u64,
                 name: file_name,
-                data: vec![],
+                data_size: data_size as u64,
             }))
         }
         rar15::END_ARCHIVE => {
@@ -498,14 +547,15 @@ pub fn read_block15<T: io::Read + Seek>(reader: &mut T) -> io::Result<Block> {
             }))
         }
 
-        rar15::AUTHENTICITY_VERIFICATION => Ok(Block::Service(ServiceBlock {
+        rar15::OLD_AUTHENTICITY_VERIFICATION1 => Ok(Block::Service(ServiceBlock {
             position,
             header_size: head_size as u64,
             name: b"AV".to_vec(),
-            data: vec![],
+            data_size: 0,
+            // data: vec![],
         })),
 
-        rar15::COMMENT => {
+        rar15::OLD_COMMENT => {
             // uncompressed file size
             let unp_size = read_u16(reader)?;
             // RAR version needed to extract
@@ -517,17 +567,35 @@ pub fn read_block15<T: io::Read + Seek>(reader: &mut T) -> io::Result<Block> {
 
             let mut data = vec![0; size as usize];
 
-            reader.read(&mut data)?;
+            reader.read_exact(&mut data)?;
 
             Ok(Block::Service(ServiceBlock {
                 position,
                 header_size: head_size as u64,
                 name: b"CMT".to_vec(),
-                data,
+                data_size: size as u64,
+                // data,
             }))
         }
 
-        _ => todo!("other header types: 0x{:x}", header_type),
+        rar15::OLD_RECOVERY_RECORD => {
+            let creation_time = read_u32(reader)?;
+            let arc_name_size = read_u16(reader)?;
+            let user_name_size = read_u16(reader)?;
+
+            println!("version: {creation_time}");
+            println!("rec_sectors: {arc_name_size}");
+            println!("total_blocks: {user_name_size}");
+
+            Ok(Block::Service(ServiceBlock {
+                position,
+                header_size: head_size as u64,
+                name: b"SIGN".to_vec(),
+                data_size: (arc_name_size + user_name_size) as u64,
+            }))
+        }
+
+        _ => Ok(Block::Unrecognized(header_type, head_size as u64, 0)),
     }
 }
 
