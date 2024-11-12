@@ -198,3 +198,70 @@ impl CryptBlock {
         })
     }
 }
+
+#[derive(Debug)]
+pub struct MainBlock {
+    pub flags: MainBlockFlags,
+    pub volume_number: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MainBlockFlags(u64);
+
+impl MainBlockFlags {
+    const VOLUME: u64 = 0x0001;
+    const VOLUME_NUMBER: u64 = 0x0002;
+    const SOLID: u64 = 0x0004;
+    const PROTECT: u64 = 0x0008;
+    const LOCK: u64 = 0x0010;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn is_volume(&self) -> bool {
+        self.0 & Self::VOLUME != 0
+    }
+
+    pub fn has_volume_number(&self) -> bool {
+        self.0 & Self::VOLUME_NUMBER != 0
+    }
+
+    pub fn is_solid(&self) -> bool {
+        self.0 & Self::SOLID != 0
+    }
+
+    pub fn has_recovery_record(&self) -> bool {
+        self.0 & Self::PROTECT != 0
+    }
+
+    pub fn is_locked(&self) -> bool {
+        self.0 & Self::LOCK != 0
+    }
+}
+
+impl Deref for MainBlockFlags {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl MainBlock {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = MainBlockFlags::new(flags);
+
+        let volume_number = if flags.has_volume_number() {
+            Some(read_vint(reader)?.0)
+        } else {
+            None
+        };
+
+        Ok(MainBlock {
+            flags,
+            volume_number,
+        })
+    }
+}
