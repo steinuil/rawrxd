@@ -3,6 +3,7 @@ mod dos_time;
 pub mod format;
 pub mod rar14;
 pub mod rar15;
+pub mod rar50;
 pub mod rar_file;
 mod rarvm;
 mod read;
@@ -74,6 +75,17 @@ fn main() {
                 break;
             }
         },
-        Format::Rar50 => todo!(),
+        Format::Rar50 => loop {
+            let block = rar50::Block::read(&mut f).unwrap();
+            println!("{block:#?}");
+            f.seek(SeekFrom::Start(block.position + block.full_size()))
+                .unwrap();
+
+            let pos = f.stream_position().unwrap();
+
+            if pos == file_len {
+                break;
+            }
+        },
     }
 }
