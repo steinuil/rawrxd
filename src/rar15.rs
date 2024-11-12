@@ -841,12 +841,31 @@ pub struct UnknownBlock {
     pub data_size: Option<u32>,
 }
 
-impl UnknownBlock {
+#[derive(Debug, Clone, Copy)]
+pub struct UnknownBlockFlags(u16);
+
+impl UnknownBlockFlags {
     const SKIP_IF_UNKNOWN: u16 = 0x4000;
     const LONG_BLOCK: u16 = 0x8000;
 
+    pub fn new(flags: u16) -> Self {
+        Self(flags)
+    }
+
+    pub fn skip_if_unknown(&self) -> bool {
+        self.0 & Self::SKIP_IF_UNKNOWN != 0
+    }
+
+    pub fn contains_data(&self) -> bool {
+        self.0 & Self::LONG_BLOCK != 0
+    }
+}
+
+impl UnknownBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16, tag: u8) -> io::Result<Self> {
-        let data_size = if flags & Self::LONG_BLOCK != 0 {
+        let flags = UnknownBlockFlags::new(flags);
+
+        let data_size = if flags.contains_data() {
             let data_size = read_u32(reader)?;
             Some(data_size)
         } else {

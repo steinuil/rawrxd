@@ -11,6 +11,9 @@ pub fn detect_format(marker: &[u8; 8]) -> Option<Format> {
     }
 }
 
+// TODO if it's an SFX (self-extracting executable) search for the markers
+// const MAX_SFX_SIZE: usize = 0x200000;
+
 pub fn read_signature<T: io::Read + io::Seek>(reader: &mut T) -> Result<Option<Format>, io::Error> {
     let position = reader.stream_position()?;
 

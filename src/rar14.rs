@@ -59,8 +59,8 @@ impl Deref for MainHeaderFlags {
 }
 
 impl MainHeader {
-    pub const SIGNATURE_SIZE: u64 = 4;
-    pub const SIZE: u64 = Self::SIGNATURE_SIZE + 3;
+    const SIGNATURE_SIZE: u64 = 4;
+    const SIZE: u64 = Self::SIGNATURE_SIZE + 3;
 
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let position = reader.stream_position()? - Self::SIGNATURE_SIZE;
