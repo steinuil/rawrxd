@@ -44,3 +44,9 @@ pub fn read_vint<R: io::Read>(r: &mut R) -> io::Result<(u64, u8)> {
     // TODO we should probably log a warning here
     Ok((vint, MAX_VINT_SIZE as u8))
 }
+
+pub fn read_bytes<const N: usize, R: io::Read>(r: &mut R) -> io::Result<[u8; N]> {
+    let mut buf = [0; N];
+    r.read_exact(&mut buf)?;
+    Ok(buf)
+}
