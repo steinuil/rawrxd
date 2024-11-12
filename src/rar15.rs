@@ -1,11 +1,15 @@
 use std::io;
 
-use crate::read::*;
+use crate::{dos_time, read::*};
 
 const NAME_MAX_SIZE: u16 = 1000;
 
 pub trait BlockRead: Sized {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self>;
+}
+
+pub trait DataSize: Sized {
+    fn data_size(&self) -> u64;
 }
 
 #[derive(Debug)]
@@ -122,16 +126,306 @@ impl BlockRead for MainBlock {
     }
 }
 
+impl DataSize for MainBlock {
+    fn data_size(&self) -> u64 {
+        0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HostOs {
+    MsDos = 0,
+    Os2 = 1,
+    Win32 = 2,
+    Unix = 3,
+    MacOs = 4,
+    BeOs = 5,
+}
+
+impl TryFrom<u8> for HostOs {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            v if v == HostOs::MsDos as u8 => Ok(HostOs::MsDos),
+            v if v == HostOs::Os2 as u8 => Ok(HostOs::Os2),
+            v if v == HostOs::Win32 as u8 => Ok(HostOs::Win32),
+            v if v == HostOs::Unix as u8 => Ok(HostOs::Unix),
+            v if v == HostOs::MacOs as u8 => Ok(HostOs::MacOs),
+            v if v == HostOs::BeOs as u8 => Ok(HostOs::BeOs),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FileBlock {
-    pub packed_file_size: u32,
-    pub unpacked_file_size: u32,
-    pub host_os: u8,
+    pub packed_data_size: u64,
+    pub unpacked_data_size: u64,
+    pub host_os: HostOs,
     pub file_crc32: u32,
     pub mtime: time::PrimitiveDateTime,
     pub unpack_version: u8,
     pub method: u8,
     pub attributes: u32,
+    pub file_name: Vec<u8>,
+    pub salt: Option<[u8; Self::SALT_SIZE]>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FileBlockFlags(u16);
+
+impl FileBlockFlags {
+    const COMMENT: u16 = 0x0002;
+    const LARGE: u16 = 0x0100;
+    const UNICODE: u16 = 0x0200;
+    const SALT: u16 = 0x0400;
+    const VERSION: u16 = 0x0800;
+    const EXTTIME: u16 = 0x1000;
+    const EXTAREA: u16 = 0x2000;
+
+    pub fn new(flags: u16) -> Self {
+        Self(flags)
+    }
+
+    pub fn has_large_size(&self) -> bool {
+        self.0 & Self::LARGE != 0
+    }
+
+    pub fn has_unicode_filename(&self) -> bool {
+        self.0 & Self::UNICODE != 0
+    }
+
+    pub fn has_salt(&self) -> bool {
+        self.0 & Self::SALT != 0
+    }
+
+    pub fn has_extended_time(&self) -> bool {
+        self.0 & Self::EXTTIME != 0
+    }
+
+    pub fn has_comment(&self) -> bool {
+        self.0 & Self::COMMENT != 0
+    }
+
+    // TODO document this
+    pub fn parse_version(&self) -> bool {
+        self.0 & Self::VERSION != 0
+    }
+
+    // TODO not sure this is used
+    pub fn has_extended_area(&self) -> bool {
+        self.0 & Self::EXTAREA != 0
+    }
+}
+
+impl FileBlock {
+    const SALT_SIZE: usize = 8;
+}
+
+impl BlockRead for FileBlock {
+    fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
+        let flags = FileBlockFlags::new(flags);
+
+        let low_packed_data_size = read_u32(reader)? as u64;
+        let low_unpacked_data_size = read_u32(reader)? as u64;
+        let host_os = read_u8(reader)?;
+        let file_crc32 = read_u32(reader)?;
+        let mtime = read_u32(reader)?;
+        let unpack_version = read_u8(reader)?;
+        let method = read_u8(reader)?;
+        let name_size = read_u16(reader)? as usize;
+        let attributes = read_u32(reader)?;
+
+        let (packed_data_size, unpacked_data_size) = if flags.has_large_size() {
+            let high_packed_data_size = read_u32(reader)? as u64;
+            let high_unpacked_data_size = read_u32(reader)? as u64;
+
+            (
+                (high_packed_data_size >> 4) | low_packed_data_size,
+                (high_unpacked_data_size >> 4) | low_unpacked_data_size,
+            )
+        } else {
+            (low_packed_data_size, low_unpacked_data_size)
+        };
+
+        let mut file_name = vec![0; name_size];
+        reader.read_exact(&mut file_name)?;
+
+        if flags.has_unicode_filename() {
+            // TODO decode the filename to unicode?
+        }
+
+        let salt = if flags.has_salt() {
+            let mut salt = [0; Self::SALT_SIZE];
+            reader.read_exact(&mut salt)?;
+            Some(salt)
+        } else {
+            None
+        };
+
+        // TODO parse exttime
+
+        Ok(FileBlock {
+            packed_data_size,
+            unpacked_data_size,
+            host_os: host_os.try_into().unwrap(),
+            file_crc32,
+            mtime: dos_time::parse(mtime),
+            unpack_version,
+            method,
+            attributes,
+            file_name,
+            salt,
+        })
+    }
+}
+
+impl DataSize for FileBlock {
+    fn data_size(&self) -> u64 {
+        self.packed_data_size
+    }
+}
+
+// TODO the service block has basically the same subheads
+// found in SubBlock, so we should parse them accordingly.
+#[derive(Debug)]
+pub struct ServiceBlock {
+    pub packed_data_size: u64,
+    pub unpacked_data_size: u64,
+    pub host_os: HostOs,
+    pub file_crc32: u32,
+    pub mtime: time::PrimitiveDateTime,
+    pub unpack_version: u8,
+    pub method: u8,
+    pub sub_flags: u32,
+    pub name: Vec<u8>,
+    pub sub_data: Option<Vec<u8>>,
+    pub salt: Option<[u8; 8]>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ServiceBlockFlags(u16);
+
+impl ServiceBlockFlags {
+    const COMMENT: u16 = 0x0002;
+    const LARGE: u16 = 0x0100;
+    const SALT: u16 = 0x0400;
+    const VERSION: u16 = 0x0800;
+    const EXTTIME: u16 = 0x1000;
+    const EXTAREA: u16 = 0x2000;
+
+    pub fn new(flags: u16) -> Self {
+        Self(flags)
+    }
+
+    pub fn has_large_size(&self) -> bool {
+        self.0 & Self::LARGE != 0
+    }
+
+    pub fn has_salt(&self) -> bool {
+        self.0 & Self::SALT != 0
+    }
+
+    pub fn has_extended_time(&self) -> bool {
+        self.0 & Self::EXTTIME != 0
+    }
+
+    pub fn has_comment(&self) -> bool {
+        self.0 & Self::COMMENT != 0
+    }
+
+    // TODO document this
+    pub fn parse_version(&self) -> bool {
+        self.0 & Self::VERSION != 0
+    }
+
+    // TODO not sure this is used
+    pub fn has_extended_area(&self) -> bool {
+        self.0 & Self::EXTAREA != 0
+    }
+}
+
+impl ServiceBlock {
+    const SIZE: usize = 32;
+    const SALT_SIZE: usize = 8;
+
+    pub fn read<R: io::Read + io::Seek>(
+        reader: &mut R,
+        flags: u16,
+        header_size: u16,
+    ) -> io::Result<Self> {
+        let flags = ServiceBlockFlags::new(flags);
+
+        let low_packed_data_size = read_u32(reader)? as u64;
+        let low_unpacked_data_size = read_u32(reader)? as u64;
+        let host_os = read_u8(reader)?;
+        let file_crc32 = read_u32(reader)?;
+        let mtime = read_u32(reader)?;
+        let unpack_version = read_u8(reader)?;
+        let method = read_u8(reader)?;
+        let name_size = read_u16(reader)? as usize;
+        let sub_flags = read_u32(reader)?;
+
+        let (packed_data_size, unpacked_data_size) = if flags.has_large_size() {
+            let high_packed_data_size = read_u32(reader)? as u64;
+            let high_unpacked_data_size = read_u32(reader)? as u64;
+
+            (
+                (high_packed_data_size >> 4) | low_packed_data_size,
+                (high_unpacked_data_size >> 4) | low_unpacked_data_size,
+            )
+        } else {
+            (low_packed_data_size, low_unpacked_data_size)
+        };
+
+        let mut name = vec![0; name_size];
+        reader.read_exact(&mut name)?;
+
+        let sub_data_size = (header_size as usize)
+            - name_size
+            - Self::SIZE
+            - if flags.has_salt() { Self::SALT_SIZE } else { 0 };
+
+        let sub_data = if sub_data_size > 0 {
+            let mut sub_data = vec![0; sub_data_size];
+            reader.read_exact(&mut sub_data)?;
+            Some(sub_data)
+        } else {
+            None
+        };
+
+        let salt = if flags.has_salt() {
+            let mut salt = [0; Self::SALT_SIZE];
+            reader.read_exact(&mut salt)?;
+            Some(salt)
+        } else {
+            None
+        };
+
+        // TODO parse exttime
+
+        Ok(ServiceBlock {
+            packed_data_size,
+            unpacked_data_size,
+            host_os: host_os.try_into().unwrap(),
+            file_crc32,
+            mtime: dos_time::parse(mtime),
+            unpack_version,
+            method,
+            sub_flags,
+            name,
+            sub_data,
+            salt,
+        })
+    }
+}
+
+impl DataSize for ServiceBlock {
+    fn data_size(&self) -> u64 {
+        self.packed_data_size
+    }
 }
 
 #[derive(Debug)]
@@ -159,6 +453,12 @@ impl BlockRead for CommentBlock {
     }
 }
 
+impl DataSize for CommentBlock {
+    fn data_size(&self) -> u64 {
+        0
+    }
+}
+
 #[derive(Debug)]
 pub struct ProtectBlock {
     // TODO do we need flags?
@@ -166,7 +466,11 @@ pub struct ProtectBlock {
     pub version: u8,
     pub recovery_sectors: u16,
     pub total_blocks: u32,
-    pub mark: [u8; 8],
+    pub mark: [u8; Self::MARK_SIZE],
+}
+
+impl ProtectBlock {
+    const MARK_SIZE: usize = 8;
 }
 
 impl BlockRead for ProtectBlock {
@@ -175,7 +479,7 @@ impl BlockRead for ProtectBlock {
         let version = read_u8(reader)?;
         let recovery_sectors = read_u16(reader)?;
         let total_blocks = read_u32(reader)?;
-        let mut mark = [0; 8];
+        let mut mark = [0; Self::MARK_SIZE];
         reader.read_exact(&mut mark)?;
 
         Ok(ProtectBlock {
@@ -185,6 +489,12 @@ impl BlockRead for ProtectBlock {
             total_blocks,
             mark,
         })
+    }
+}
+
+impl DataSize for ProtectBlock {
+    fn data_size(&self) -> u64 {
+        self.data_size as u64
     }
 }
 
@@ -388,6 +698,12 @@ impl BlockRead for SubBlock {
     }
 }
 
+impl DataSize for SubBlock {
+    fn data_size(&self) -> u64 {
+        self.data_size as u64
+    }
+}
+
 #[derive(Debug)]
 pub struct SignBlock {
     // TODO flags?
@@ -407,6 +723,12 @@ impl BlockRead for SignBlock {
             archive_name_size,
             user_name_size,
         })
+    }
+}
+
+impl DataSize for SignBlock {
+    fn data_size(&self) -> u64 {
+        0
     }
 }
 
@@ -432,6 +754,12 @@ impl BlockRead for AvBlock {
             av_version,
             av_info_crc32,
         })
+    }
+}
+
+impl DataSize for AvBlock {
+    fn data_size(&self) -> u64 {
+        0
     }
 }
 
@@ -501,19 +829,126 @@ impl BlockRead for EndArchiveBlock {
     }
 }
 
-#[derive(Debug)]
-pub struct BaseHeader {
-    pub position: u64,
-    pub header_size: u16,
-    pub header_crc16: u16,
-    pub flags: u16,
+impl DataSize for EndArchiveBlock {
+    fn data_size(&self) -> u64 {
+        0
+    }
 }
 
-pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<()> {
-    let header_crc16 = read_u16(reader)?;
-    let header_type = read_u8(reader)?;
-    let flags = read_u16(reader)?;
-    let header_size = read_u16(reader)?;
+#[derive(Debug)]
+pub struct UnknownBlock {
+    pub tag: u8,
+    pub data_size: Option<u32>,
+}
 
-    Ok(())
+impl UnknownBlock {
+    const SKIP_IF_UNKNOWN: u16 = 0x4000;
+    const LONG_BLOCK: u16 = 0x8000;
+
+    fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16, tag: u8) -> io::Result<Self> {
+        let data_size = if flags & Self::LONG_BLOCK != 0 {
+            let data_size = read_u32(reader)?;
+            Some(data_size)
+        } else {
+            None
+        };
+
+        Ok(UnknownBlock { tag, data_size })
+    }
+}
+
+impl DataSize for UnknownBlock {
+    fn data_size(&self) -> u64 {
+        self.data_size.unwrap_or(0) as u64
+    }
+}
+
+#[derive(Debug)]
+pub enum BlockKind {
+    Main(MainBlock),
+    File(FileBlock),
+    Service(ServiceBlock),
+    EndArchive(EndArchiveBlock),
+    Comment(CommentBlock),
+    Av(AvBlock),
+    Sub(SubBlock),
+    Protect(ProtectBlock),
+    Sign(SignBlock),
+    Unknown(UnknownBlock),
+}
+
+mod block {
+    pub const MAIN: u8 = 0x73;
+    pub const FILE: u8 = 0x74;
+    pub const COMMENT: u8 = 0x75;
+    pub const AV: u8 = 0x76;
+    pub const SUB: u8 = 0x77;
+    pub const PROTECT: u8 = 0x78;
+    pub const SIGN: u8 = 0x79;
+    pub const SERVICE: u8 = 0x7a;
+    pub const ENDARC: u8 = 0x7b;
+}
+
+#[derive(Debug)]
+pub struct Block {
+    pub position: u64,
+    pub header_crc16: u16,
+    pub header_size: u16,
+    pub kind: BlockKind,
+}
+
+impl DataSize for Block {
+    fn data_size(&self) -> u64 {
+        match &self.kind {
+            BlockKind::Main(b) => b.data_size(),
+            BlockKind::File(b) => b.data_size(),
+            BlockKind::Service(b) => b.data_size(),
+            BlockKind::EndArchive(b) => b.data_size(),
+            BlockKind::Comment(b) => b.data_size(),
+            BlockKind::Av(b) => b.data_size(),
+            BlockKind::Sub(b) => b.data_size(),
+            BlockKind::Protect(b) => b.data_size(),
+            BlockKind::Sign(b) => b.data_size(),
+            BlockKind::Unknown(b) => b.data_size(),
+        }
+    }
+}
+
+impl Block {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let position = reader.stream_position()?;
+
+        let header_crc16 = read_u16(reader)?;
+        let block_type = read_u8(reader)?;
+        let flags = read_u16(reader)?;
+        let header_size = read_u16(reader)?;
+
+        let kind = match block_type {
+            block::MAIN => BlockKind::Main(MainBlock::read(reader, flags)?),
+            block::FILE => BlockKind::File(FileBlock::read(reader, flags)?),
+            block::SERVICE => BlockKind::Service(ServiceBlock::read(reader, flags, header_size)?),
+            block::COMMENT => BlockKind::Comment(CommentBlock::read(reader, flags)?),
+            block::AV => BlockKind::Av(AvBlock::read(reader, flags)?),
+            block::SUB => BlockKind::Sub(SubBlock::read(reader, flags)?),
+            block::PROTECT => BlockKind::Protect(ProtectBlock::read(reader, flags)?),
+            block::SIGN => BlockKind::Sign(SignBlock::read(reader, flags)?),
+            block::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader, flags)?),
+            _ => BlockKind::Unknown(UnknownBlock::read(reader, flags, block_type)?),
+        };
+
+        Ok(Block {
+            position,
+            header_crc16,
+            header_size,
+            kind,
+        })
+    }
+
+    pub fn header_size(&self) -> u64 {
+        self.header_size as u64
+    }
+
+    pub fn full_size(&self) -> u64 {
+        self.header_size() + self.data_size()
+    }
 }

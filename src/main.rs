@@ -10,7 +10,7 @@ mod read;
 
 use std::{
     fs,
-    io::{self, BufReader, Seek, SeekFrom},
+    io::{BufReader, Seek, SeekFrom},
 };
 
 use block::*;
@@ -500,23 +500,21 @@ fn main() {
                 .unwrap();
             }
         }
-        Format::Rar15 => todo!(),
-        // loop {
-        //     let block = read_block15(&mut f).unwrap();
-        //     block.print_info();
-        //     println!();
-        //     if let Block::EndArchive(_) = block {
-        //         break;
-        //     }
-        //     f.seek(SeekFrom::Start(block.position() + block.size()))
-        //         .unwrap();
+        Format::Rar15 => loop {
+            let block = rar15::Block::read(&mut f).unwrap();
+            println!("{block:#?}");
+            if let rar15::BlockKind::EndArchive(_) = block.kind {
+                break;
+            }
+            f.seek(SeekFrom::Start(block.position + block.full_size()))
+                .unwrap();
 
-        //     let pos = f.stream_position().unwrap();
+            let pos = f.stream_position().unwrap();
 
-        //     if pos == file_len {
-        //         break;
-        //     }
-        // },
+            if pos == file_len {
+                break;
+            }
+        },
         Format::Rar50 => todo!(),
     }
 }
