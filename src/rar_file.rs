@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::format::Format;
+use crate::{format::Format, read::read_const_bytes};
 
 pub fn detect_format(marker: &[u8; 8]) -> Option<Format> {
     match marker {
@@ -17,8 +17,7 @@ pub fn detect_format(marker: &[u8; 8]) -> Option<Format> {
 pub fn read_signature<T: io::Read + io::Seek>(reader: &mut T) -> Result<Option<Format>, io::Error> {
     let position = reader.stream_position()?;
 
-    let mut marker = [0; 8];
-    reader.read_exact(&mut marker)?;
+    let marker = read_const_bytes(reader)?;
 
     let Some(format) = detect_format(&marker) else {
         return Ok(None);

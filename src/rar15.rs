@@ -266,17 +266,14 @@ impl BlockRead for FileBlock {
             (low_packed_data_size, low_unpacked_data_size)
         };
 
-        let mut file_name = vec![0; name_size];
-        reader.read_exact(&mut file_name)?;
+        let file_name = read_vec(reader, name_size)?;
 
         if flags.has_unicode_filename() {
             // TODO decode the filename to unicode?
         }
 
         let salt = if flags.has_salt() {
-            let mut salt = [0; Self::SALT_SIZE];
-            reader.read_exact(&mut salt)?;
-            Some(salt)
+            Some(read_const_bytes(reader)?)
         } else {
             None
         };
@@ -404,8 +401,7 @@ impl ServiceBlock {
             (low_packed_data_size, low_unpacked_data_size)
         };
 
-        let mut name = vec![0; name_size];
-        reader.read_exact(&mut name)?;
+        let name = read_vec(reader, name_size)?;
 
         let sub_data_size = (header_size as usize)
             - name_size
@@ -413,17 +409,13 @@ impl ServiceBlock {
             - if flags.has_salt() { Self::SALT_SIZE } else { 0 };
 
         let sub_data = if sub_data_size > 0 {
-            let mut sub_data = vec![0; sub_data_size];
-            reader.read_exact(&mut sub_data)?;
-            Some(sub_data)
+            Some(read_vec(reader, sub_data_size)?)
         } else {
             None
         };
 
         let salt = if flags.has_salt() {
-            let mut salt = [0; Self::SALT_SIZE];
-            reader.read_exact(&mut salt)?;
-            Some(salt)
+            Some(read_const_bytes(reader)?)
         } else {
             None
         };
@@ -503,8 +495,7 @@ impl BlockRead for ProtectBlock {
         let version = read_u8(reader)?;
         let recovery_sectors = read_u16(reader)?;
         let total_blocks = read_u32(reader)?;
-        let mut mark = [0; Self::MARK_SIZE];
-        reader.read_exact(&mut mark)?;
+        let mark = read_const_bytes(reader)?;
 
         Ok(ProtectBlock {
             data_size,
@@ -565,12 +556,8 @@ impl UnixOwnerSubBlock {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let user_size = read_u16(reader)?.clamp(0, NAME_MAX_SIZE - 1) as usize;
         let group_size = read_u16(reader)?.clamp(0, NAME_MAX_SIZE - 1) as usize;
-
-        let mut user = vec![0; user_size];
-        reader.read_exact(&mut user)?;
-
-        let mut group = vec![0; group_size];
-        reader.read_exact(&mut group)?;
+        let user = read_vec(reader, user_size)?;
+        let group = read_vec(reader, group_size)?;
 
         Ok(UnixOwnerSubBlock { user, group })
     }
@@ -646,8 +633,7 @@ impl NtfsStreamSubBlock {
         let method = read_u8(reader)?;
         let stream_crc32 = read_u32(reader)?;
         let stream_name_size = read_u16(reader)?.clamp(0, NAME_MAX_SIZE - 1) as usize;
-        let mut stream_name = vec![0; stream_name_size];
-        reader.read_exact(&mut stream_name)?;
+        let stream_name = read_vec(reader, stream_name_size)?;
 
         Ok(NtfsStreamSubBlock {
             unpacked_data_size,

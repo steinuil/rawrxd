@@ -98,8 +98,7 @@ impl MainBlock {
                 return Ok(None);
             }
 
-            let mut comment = vec![0; size];
-            reader.read_exact(&mut comment)?;
+            let comment = read_vec(reader, size)?;
             return Ok(Some(comment));
         }
 
@@ -193,9 +192,7 @@ impl FileBlock {
         let unpack_version = if read_u8(reader)? == 2 { 13 } else { 10 };
         let name_size = read_u8(reader)? as usize;
         let method = read_u8(reader)?;
-
-        let mut name = vec![0; name_size];
-        reader.read_exact(&mut name)?;
+        let name = read_vec(reader, name_size)?;
 
         // TODO this should be OS-agnostic.
         let name = OsString::from_vec(name);

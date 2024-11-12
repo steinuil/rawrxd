@@ -179,12 +179,12 @@ impl CryptBlock {
         let (encryption_version, _) = read_vint(reader)?;
         let (flags, _) = read_vint(reader)?;
         let kdf_count = read_u8(reader)?;
-        let salt = read_bytes(reader)?;
+        let salt = read_const_bytes(reader)?;
 
         let flags = CryptBlockFlags::new(flags);
 
         let check_value = if flags.has_password_check() {
-            Some(read_bytes(reader)?)
+            Some(read_const_bytes(reader)?)
         } else {
             None
         };

@@ -45,8 +45,14 @@ pub fn read_vint<R: io::Read>(r: &mut R) -> io::Result<(u64, u8)> {
     Ok((vint, MAX_VINT_SIZE as u8))
 }
 
-pub fn read_bytes<const N: usize, R: io::Read>(r: &mut R) -> io::Result<[u8; N]> {
+pub fn read_const_bytes<const N: usize, R: io::Read>(r: &mut R) -> io::Result<[u8; N]> {
     let mut buf = [0; N];
+    r.read_exact(&mut buf)?;
+    Ok(buf)
+}
+
+pub fn read_vec<R: io::Read>(r: &mut R, size: usize) -> io::Result<Vec<u8>> {
+    let mut buf = vec![0; size];
     r.read_exact(&mut buf)?;
     Ok(buf)
 }
