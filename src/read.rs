@@ -23,3 +23,24 @@ pub fn read_u64<R: io::Read>(r: &mut R) -> io::Result<u64> {
     r.read_exact(&mut buf)?;
     Ok(u64::from_le_bytes(buf))
 }
+
+const MAX_VINT_SIZE: usize = 10;
+
+/// Read a variable-size integer and return the int and size in bytes.
+/// The lower 7 bits of every byte contain integer data, and the highest bit
+/// acts as a continuation flag.
+pub fn read_vint<R: io::Read>(r: &mut R) -> io::Result<(u64, u8)> {
+    let mut vint: u64 = 0;
+
+    for i in 0..MAX_VINT_SIZE {
+        let shift = i * 7;
+        let byte = read_u8(r)?;
+        vint |= ((byte & !0x80) as u64) << shift;
+        if (byte & 0x80) == 0 {
+            return Ok((vint, i as u8 + 1));
+        }
+    }
+
+    // TODO we should probably log a warning here
+    Ok((vint, MAX_VINT_SIZE as u8))
+}

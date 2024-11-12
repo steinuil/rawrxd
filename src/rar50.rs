@@ -5,24 +5,6 @@ use crate::{
     size::{DataSize, HeaderSize},
 };
 
-const MAX_VINT_SIZE: usize = 10;
-
-fn read_vint<R: io::Read>(r: &mut R) -> io::Result<u64> {
-    let mut vint: u64 = 0;
-
-    for i in 0..MAX_VINT_SIZE {
-        let shift = i * 7;
-        let byte = read_u8(r)?;
-        vint |= ((byte & 0x7F) as u64) << shift;
-        if (byte & 0x80) == 0 {
-            return Ok(vint);
-        }
-    }
-
-    // TODO we should probably return an error here
-    Ok(vint)
-}
-
 #[derive(Debug)]
 pub struct Block {
     pub position: u64,
@@ -93,23 +75,22 @@ impl Block {
 
         let header_crc32 = read_u32(reader)?;
 
-        let header_size = read_vint(reader)?;
-        let current_pos = reader.stream_position()?;
-        let full_header_size = header_size + (current_pos - position);
+        let (header_size, vint_size) = read_vint(reader)?;
+        let full_header_size = header_size + vint_size as u64 + 4;
 
-        let header_type = read_vint(reader)?;
+        let (header_type, _) = read_vint(reader)?;
 
-        let flags = read_vint(reader)?;
+        let (flags, _) = read_vint(reader)?;
         let flags = CommonBlockFlags::new(flags);
 
         let extra_area_size = if flags.has_extra_area() {
-            Some(read_vint(reader)?)
+            Some(read_vint(reader)?.0)
         } else {
             None
         };
 
         let data_size = if flags.has_data_area() {
-            Some(read_vint(reader)?)
+            Some(read_vint(reader)?.0)
         } else {
             None
         };
