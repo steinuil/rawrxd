@@ -1,115 +1,51 @@
+mod block;
 mod decompress;
-mod format;
+mod dos_time;
+pub mod format;
+pub mod rar14;
+pub mod rar15;
+pub mod rar_file;
 mod rarvm;
+mod read;
 
 use std::{
     fs,
     io::{self, BufReader, Seek, SeekFrom},
 };
 
-fn parse_dos_time(dos_time: u32) -> time::PrimitiveDateTime {
-    let second = ((dos_time & 0x1f) * 2) as u8;
-    let minute = ((dos_time >> 5) & 0x3f) as u8;
-    let hour = ((dos_time >> 11) & 0x1f) as u8;
-    let time = time::Time::from_hms(hour, minute, second).unwrap();
-    let day = ((dos_time >> 16) & 0x1f) as u8;
-    let month = ((dos_time >> 21) & 0x0f) as u8;
-    let year = ((dos_time >> 25) + 1980) as i32;
-    let date = time::Date::from_calendar_date(year, month.try_into().unwrap(), day).unwrap();
-    time::PrimitiveDateTime::new(date, time)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Format {
-    /// RAR 1.4
-    Version14,
-
-    /// RAR 4
-    Version15,
-
-    /// RAR 5
-    Version50,
-}
-
-impl Format {
-    pub fn signature_size(&self) -> usize {
-        match self {
-            Format::Version14 => 4,
-            Format::Version15 => 7,
-            Format::Version50 => 8,
-        }
-    }
-}
+use block::*;
+use format::Format;
 
 // const MAX_SFX_SIZE: usize = 0x200000;
 
-pub fn is_archive<R: io::Read>(file: &mut R) -> Result<(Format, usize), io::Error> {
-    let mut header_mark = [0; 8];
-    let read = file.read(&mut header_mark)?;
-    match &header_mark[..] {
-        [b'R', b'E', 0x7e, 0x5e, _, _, _, _] => Ok((Format::Version14, 0)),
-        [b'R', b'a', b'r', b'!', 0x1a, 7, 0, _] if read >= 7 => Ok((Format::Version15, 0)),
-        [b'R', b'a', b'r', b'!', 0x1a, 7, 1, 0] if read >= 8 => Ok((Format::Version50, 0)),
-        [b'R', b'a', b'r', b'!', 0x1a, 7, v, 0] if read >= 8 && v > &1 && v < &5 => {
-            todo!("future version of rar format")
-        }
-        _ => todo!("might be an SFX or not an archive"),
-    }
-}
-
-fn read_u8<R: io::Read>(r: &mut R) -> io::Result<u8> {
-    let mut buf = [0; 1];
-    r.read_exact(&mut buf)?;
-    Ok(buf[0])
-}
-
-fn read_u16<R: io::Read>(r: &mut R) -> io::Result<u16> {
-    let mut buf = [0; 2];
-    r.read_exact(&mut buf)?;
-    Ok(u16::from_le_bytes(buf))
-}
-
-fn read_u32<R: io::Read>(r: &mut R) -> io::Result<u32> {
-    let mut buf = [0; 4];
-    r.read_exact(&mut buf)?;
-    Ok(u32::from_le_bytes(buf))
-}
-
-#[derive(Debug)]
-pub struct MainBlock {
-    pub position: u64,
-    pub header_size: u64,
-    crc: u16,
-    pub flags: MainBlockFlags,
-    high_pos_av: u16,
-    pos_av: u32,
-}
-
 impl MainBlock {
-    pub fn new(
-        position: u64,
-        header_size: u64,
-        crc: u16,
-        flags: MainBlockFlags,
-        high_pos_av: u16,
-        pos_av: u32,
-    ) -> Self {
-        MainBlock {
-            position,
-            header_size,
-            crc,
-            flags,
-            high_pos_av,
-            pos_av,
-        }
-    }
-
     pub fn print_info(&self) {
         println!("- type: main");
         println!("  position: {:#x}", self.position);
         println!("  size: {}", self.header_size);
         println!("  crc: {:04X}", self.crc);
         println!("  flags: {:#016b}", self.flags.0);
+        println!(
+            "    has_old_style_comment: {}",
+            self.flags.has_old_style_comment()
+        );
+        println!(
+            "    has_authenticity_information: {}",
+            self.flags.has_authenticity_information()
+        );
+        println!("    is_volume: {}", self.flags.is_volume());
+        println!("    is_solid: {}", self.flags.is_solid());
+        println!("    is_locked: {}", self.flags.is_locked());
+        println!(
+            "    is_password_protected: {}",
+            self.flags.is_password_protected()
+        );
+        println!("    is_first_volume: {}", self.flags.is_first_volume());
+        println!("    is_encrypted: {}", self.flags.is_encrypted());
+        println!(
+            "    uses_new_numbering: {}",
+            self.flags.uses_new_numbering()
+        );
         println!("  high_pos_av: {}", self.high_pos_av);
         println!("  pos_av: {:#x}", self.pos_av);
     }
@@ -240,84 +176,6 @@ impl Block {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct MainBlockFlags(u16);
-
-impl MainBlockFlags {
-    const VOLUME: u16 = 0x0001;
-    const PACK_COMMENT: u16 = 0x0002;
-    const LOCK: u16 = 0x0004;
-    const SOLID: u16 = 0x0008;
-    const NEWNUMBERING: u16 = 0x0010;
-    const AUTHENTICITY: u16 = 0x0020;
-    const PROTECT: u16 = 0x0040;
-    const PASSWORD: u16 = 0x0080;
-    const FIRSTVOLUME: u16 = 0x0100;
-
-    pub fn new(flags: u16) -> Self {
-        MainBlockFlags(flags)
-    }
-
-    /// Old style (up to RAR 2.9) main archive comment embedded into
-    /// the main archive header.
-    pub fn has_old_style_comment(&self) -> bool {
-        self.0 & Self::PACK_COMMENT != 0
-    }
-
-    /// TODO does this mean that authenticity is set in the main header?
-    /// or just that it exists in the archive?
-    /// Only present up to RAR 3.0
-    pub fn has_authenticity_information(&self) -> bool {
-        self.0 & Self::AUTHENTICITY != 0
-    }
-
-    /// A multi-volume archive is an archive split into multiple files.
-    pub fn is_volume(&self) -> bool {
-        self.0 & Self::VOLUME != 0
-    }
-
-    /// https://en.wikipedia.org/wiki/Solid_compression
-    pub fn is_solid(&self) -> bool {
-        self.0 & Self::SOLID != 0
-    }
-
-    /// A locked archive is just an archive with this flag set,
-    /// and when it is set WinRAR will refuse to modify it.
-    pub fn is_locked(&self) -> bool {
-        self.0 & Self::LOCK != 0
-    }
-
-    pub fn is_password_protected(&self) -> bool {
-        self.0 & Self::PROTECT != 0
-    }
-
-    /// Block headers are encrypted
-    pub fn is_encrypted(&self) -> bool {
-        self.0 & Self::PASSWORD != 0
-    }
-
-    /// Set only by RAR 3.0+
-    pub fn is_first_volume(&self) -> bool {
-        self.0 & Self::FIRSTVOLUME != 0
-    }
-
-    /// In multi-volume archives, old numbering looks like this:
-    ///
-    /// - archive.rar
-    /// - archive.r00
-    /// - archive.r01
-    /// - ...
-    ///
-    /// With the new numbering scheme, all volumes use the .rar extension.
-    ///
-    /// - archive.part01.rar
-    /// - archive.part02.rar
-    /// - ...
-    pub fn uses_new_numbering(&self) -> bool {
-        self.0 & Self::NEWNUMBERING != 0
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 pub struct EndArchiveBlockFlags(u16);
 
 impl EndArchiveBlockFlags {
@@ -378,232 +236,224 @@ impl TryFrom<u8> for HostSystem {
 }
 
 // RAR 1.5 - 4.x header types.
-mod rar15 {
-    /// HEAD3_MARK
-    pub const MARKER: u8 = 0x72;
+// mod rar15 {
+//     /// HEAD3_MARK
+//     pub const MARKER: u8 = 0x72;
 
-    /// HEAD3_MAIN
-    pub const MAIN: u8 = 0x73;
+//     /// HEAD3_MAIN
+//     pub const MAIN: u8 = 0x73;
 
-    /// HEAD3_FILE
-    pub const FILE: u8 = 0x74;
+//     /// HEAD3_FILE
+//     pub const FILE: u8 = 0x74;
 
-    /// HEAD3_SERVICE
-    pub const SERVICE: u8 = 0x7a;
+//     /// HEAD3_SERVICE
+//     pub const SERVICE: u8 = 0x7a;
 
-    /// HEAD3_ENDARC
-    pub const END_ARCHIVE: u8 = 0x7b;
+//     /// HEAD3_ENDARC
+//     pub const END_ARCHIVE: u8 = 0x7b;
 
-    /// HEAD3_75
-    pub const OLD_COMMENT: u8 = 0x75;
+//     /// HEAD3_75
+//     pub const OLD_COMMENT: u8 = 0x75;
 
-    /// HEAD3_AV
-    pub const OLD_AUTHENTICITY_VERIFICATION1: u8 = 0x76;
+//     /// HEAD3_AV
+//     pub const OLD_AUTHENTICITY_VERIFICATION1: u8 = 0x76;
 
-    /// HEAD3_SIGN
-    pub const OLD_AUTHENTICITY_VERIFICATION2: u8 = 0x79;
+//     /// HEAD3_SIGN
+//     pub const OLD_AUTHENTICITY_VERIFICATION2: u8 = 0x79;
 
-    /// HEAD3_OLDSERVICE
-    pub const OLD_SERVICE: u8 = 0x77;
+//     /// HEAD3_OLDSERVICE
+//     pub const OLD_SERVICE: u8 = 0x77;
 
-    /// HEAD3_PROTECT
-    pub const OLD_RECOVERY_RECORD: u8 = 0x78;
+//     /// HEAD3_PROTECT
+//     pub const OLD_RECOVERY_RECORD: u8 = 0x78;
 
-    pub mod flags {
-        pub const LARGE_FILE: u16 = 0x100;
-    }
-}
+//     pub mod flags {
+//         pub const LARGE_FILE: u16 = 0x100;
+//     }
+// }
 
-pub fn read_block15<T: io::Read + Seek>(reader: &mut T) -> io::Result<Block> {
-    let position = reader.stream_position()?;
+// pub fn read_block15<T: io::Read + Seek>(reader: &mut T) -> io::Result<Block> {
+//     let position = reader.stream_position()?;
 
-    let crc = read_u16(reader)?;
-    let header_type = read_u8(reader)?;
-    let flags = read_u16(reader)?;
-    let head_size = read_u16(reader)?;
+//     let crc = read_u16(reader)?;
+//     let header_type = read_u8(reader)?;
+//     let flags = read_u16(reader)?;
+//     let head_size = read_u16(reader)?;
 
-    // TODO: Check that head_size is >= 7
+//     // TODO: Check that head_size is >= 7
 
-    match header_type {
-        rar15::MAIN if head_size >= 13 => {
-            // TODO main header could be > 13?
+//     match header_type {
+//         rar15::MAIN if head_size >= 13 => {
+//             // TODO main header could be > 13?
 
-            let flags = MainBlockFlags::new(flags);
+//             let flags = MainBlockFlags::new(flags);
 
-            let high_pos_av = read_u16(reader)?;
-            let pos_av = read_u32(reader)?;
+//             let high_pos_av = read_u16(reader)?;
+//             let pos_av = read_u32(reader)?;
 
-            let block = MainBlock::new(
-                position,
-                if flags.has_old_style_comment() {
-                    13
-                } else {
-                    head_size as u64
-                },
-                crc,
-                flags,
-                high_pos_av,
-                pos_av,
-            );
+//             Ok(Block::Main(MainBlock {
+//                 position,
+//                 header_size: if flags.has_old_style_comment() {
+//                     13
+//                 } else {
+//                     head_size as u64
+//                 },
+//                 crc,
+//                 flags,
+//                 high_pos_av,
+//                 pos_av,
+//             }))
+//         }
+//         rar15::FILE => {
+//             let low_data_size = read_u32(reader)? as u64;
+//             let low_unpacked_size = read_u32(reader)? as u64;
+//             let host_system: HostSystem = read_u8(reader)?.try_into().unwrap();
 
-            Ok(Block::Main(block))
-        }
-        rar15::FILE => {
-            let low_data_size = read_u32(reader)? as u64;
-            let low_unpacked_size = read_u32(reader)? as u64;
-            let host_system: HostSystem = read_u8(reader)?.try_into().unwrap();
+//             let file_crc32 = read_u32(reader)?;
+//             let file_time = {
+//                 let dos_time = read_u32(reader)?;
+//                 dos_time::parse(dos_time)
+//             };
+//             let unp_ver = read_u8(reader)?;
 
-            let file_crc32 = read_u32(reader)?;
-            let file_time = {
-                let dos_time = read_u32(reader)?;
-                parse_dos_time(dos_time)
-            };
-            let unp_ver = read_u8(reader)?;
+//             let method = read_u8(reader)?;
+//             let name_size = read_u16(reader)? as usize;
+//             let file_attr = read_u32(reader)?;
 
-            let method = read_u8(reader)?;
-            let name_size = read_u16(reader)? as usize;
-            let file_attr = read_u32(reader)?;
+//             let (data_size, unpacked_size) = if flags & rar15::flags::LARGE_FILE != 0 {
+//                 let high_data_size = read_u32(reader)? as u64;
+//                 let high_unpacked_size = read_u32(reader)? as u64;
 
-            let (data_size, unpacked_size) = if flags & rar15::flags::LARGE_FILE != 0 {
-                let high_data_size = read_u32(reader)? as u64;
-                let high_unpacked_size = read_u32(reader)? as u64;
+//                 (
+//                     (high_data_size >> 4) | low_data_size,
+//                     (high_unpacked_size >> 4) | low_unpacked_size,
+//                 )
+//             } else {
+//                 (low_data_size, low_unpacked_size)
+//             };
 
-                (
-                    (high_data_size >> 4) | low_data_size,
-                    (high_unpacked_size >> 4) | low_unpacked_size,
-                )
-            } else {
-                (low_data_size, low_unpacked_size)
-            };
+//             let mut file_name = vec![0; name_size];
+//             reader.read_exact(&mut file_name)?;
 
-            let mut file_name = vec![0; name_size];
-            reader.read_exact(&mut file_name)?;
+//             Ok(Block::File(FileBlock {
+//                 position,
+//                 header_size: head_size as u64,
+//                 packed_file_size: data_size,
+//                 unpacked_file_size: unpacked_size,
+//                 mtime: file_time,
+//                 crc32: file_crc32,
+//                 attributes: file_attr,
+//                 file_name,
+//                 host_system,
+//             }))
+//         }
+//         rar15::SERVICE => {
+//             let data_size = read_u32(reader)?;
+//             let low_unp_size = read_u32(reader)?;
+//             let host_os = read_u8(reader)?;
 
-            Ok(Block::File(FileBlock {
-                position,
-                header_size: head_size as u64,
-                packed_file_size: data_size,
-                unpacked_file_size: unpacked_size,
-                mtime: file_time,
-                crc32: file_crc32,
-                attributes: file_attr,
-                file_name,
-                host_system,
-            }))
-        }
-        rar15::SERVICE => {
-            let data_size = read_u32(reader)?;
-            let low_unp_size = read_u32(reader)?;
-            let host_os = read_u8(reader)?;
+//             let file_crc32 = read_u32(reader)?;
+//             let file_time = read_u32(reader)?;
+//             let unp_ver = read_u8(reader)?;
 
-            let file_crc32 = read_u32(reader)?;
-            let file_time = read_u32(reader)?;
-            let unp_ver = read_u8(reader)?;
+//             let method = read_u8(reader)? - 0x30;
+//             let name_size = read_u16(reader)? as usize;
+//             let file_attr = read_u32(reader)?;
 
-            let method = read_u8(reader)? - 0x30;
-            let name_size = read_u16(reader)? as usize;
-            let file_attr = read_u32(reader)?;
+//             // Large file
+//             if flags & 0x100 != 0 {
+//                 let high_pack_size = read_u32(reader)?;
+//                 let high_unp_size = read_u32(reader)?;
+//             }
 
-            // Large file
-            if flags & 0x100 != 0 {
-                let high_pack_size = read_u32(reader)?;
-                let high_unp_size = read_u32(reader)?;
-            }
+//             let mut file_name = vec![0; name_size];
+//             reader.read_exact(&mut file_name)?;
 
-            let mut file_name = vec![0; name_size];
-            reader.read_exact(&mut file_name)?;
+//             // Ok(head_size as usize + data_size as usize)
+//             // panic!("a");
 
-            // Ok(head_size as usize + data_size as usize)
-            // panic!("a");
+//             Ok(Block::Service(ServiceBlock {
+//                 position,
+//                 header_size: head_size as u64,
+//                 name: file_name,
+//                 data_size: data_size as u64,
+//             }))
+//         }
+//         rar15::END_ARCHIVE => {
+//             let flags = EndArchiveBlockFlags::new(flags);
 
-            Ok(Block::Service(ServiceBlock {
-                position,
-                header_size: head_size as u64,
-                name: file_name,
-                data_size: data_size as u64,
-            }))
-        }
-        rar15::END_ARCHIVE => {
-            let flags = EndArchiveBlockFlags::new(flags);
+//             let data_crc = if flags.has_data_crc() {
+//                 Some(read_u32(reader)?)
+//             } else {
+//                 None
+//             };
 
-            let data_crc = if flags.has_data_crc() {
-                Some(read_u32(reader)?)
-            } else {
-                None
-            };
+//             let volume_number = if flags.has_volume_number() {
+//                 Some(read_u16(reader)?)
+//             } else {
+//                 None
+//             };
 
-            let volume_number = if flags.has_volume_number() {
-                Some(read_u16(reader)?)
-            } else {
-                None
-            };
+//             Ok(Block::EndArchive(EndArchiveBlock {
+//                 position,
+//                 header_size: head_size as u64,
+//                 flags,
+//                 data_crc,
+//                 volume_number,
+//             }))
+//         }
 
-            Ok(Block::EndArchive(EndArchiveBlock {
-                position,
-                header_size: head_size as u64,
-                flags,
-                data_crc,
-                volume_number,
-            }))
-        }
+//         rar15::OLD_AUTHENTICITY_VERIFICATION1 => Ok(Block::Service(ServiceBlock {
+//             position,
+//             header_size: head_size as u64,
+//             name: b"AV".to_vec(),
+//             data_size: 0,
+//             // data: vec![],
+//         })),
 
-        rar15::OLD_AUTHENTICITY_VERIFICATION1 => Ok(Block::Service(ServiceBlock {
-            position,
-            header_size: head_size as u64,
-            name: b"AV".to_vec(),
-            data_size: 0,
-            // data: vec![],
-        })),
+//         rar15::OLD_COMMENT => {
+//             // uncompressed file size
+//             let unp_size = read_u16(reader)?;
+//             // RAR version needed to extract
+//             let unp_ver = read_u8(reader)?;
+//             let method = read_u8(reader)?;
+//             let comm_crc = read_u16(reader)?;
 
-        rar15::OLD_COMMENT => {
-            // uncompressed file size
-            let unp_size = read_u16(reader)?;
-            // RAR version needed to extract
-            let unp_ver = read_u8(reader)?;
-            let method = read_u8(reader)?;
-            let comm_crc = read_u16(reader)?;
+//             let size = head_size - 13;
 
-            let size = head_size - 13;
+//             let mut data = vec![0; size as usize];
 
-            let mut data = vec![0; size as usize];
+//             reader.read_exact(&mut data)?;
 
-            reader.read_exact(&mut data)?;
+//             Ok(Block::Service(ServiceBlock {
+//                 position,
+//                 header_size: head_size as u64,
+//                 name: b"CMT".to_vec(),
+//                 data_size: size as u64,
+//                 // data,
+//             }))
+//         }
 
-            Ok(Block::Service(ServiceBlock {
-                position,
-                header_size: head_size as u64,
-                name: b"CMT".to_vec(),
-                data_size: size as u64,
-                // data,
-            }))
-        }
+//         rar15::OLD_RECOVERY_RECORD => {
+//             let creation_time = read_u32(reader)?;
+//             let arc_name_size = read_u16(reader)?;
+//             let user_name_size = read_u16(reader)?;
 
-        rar15::OLD_RECOVERY_RECORD => {
-            let creation_time = read_u32(reader)?;
-            let arc_name_size = read_u16(reader)?;
-            let user_name_size = read_u16(reader)?;
+//             println!("creation_time: {creation_time}");
+//             println!("arc_name_size: {arc_name_size}");
+//             println!("user_name_size: {user_name_size}");
 
-            println!("version: {creation_time}");
-            println!("rec_sectors: {arc_name_size}");
-            println!("total_blocks: {user_name_size}");
+//             Ok(Block::Service(ServiceBlock {
+//                 position,
+//                 header_size: head_size as u64,
+//                 name: b"SIGN".to_vec(),
+//                 data_size: (arc_name_size + user_name_size) as u64,
+//             }))
+//         }
 
-            Ok(Block::Service(ServiceBlock {
-                position,
-                header_size: head_size as u64,
-                name: b"SIGN".to_vec(),
-                data_size: (arc_name_size + user_name_size) as u64,
-            }))
-        }
-
-        _ => Ok(Block::Unrecognized(header_type, head_size as u64, 0)),
-    }
-}
-
-#[test]
-fn test_rar_version() {
-    let mut f = fs::File::open("fixtures/testfile.rar3.av.rar").unwrap();
-    assert_eq!((Format::Version15, 0), is_archive(&mut f).unwrap());
-}
+//         _ => Ok(Block::Unrecognized(header_type, head_size as u64, 0)),
+//     }
+// }
 
 fn main() {
     let mut args = std::env::args();
@@ -613,30 +463,60 @@ fn main() {
     let file_len = f.metadata().unwrap().len();
     let mut f = BufReader::new(f);
 
-    let (format, start) = is_archive(&mut f).unwrap();
+    let format = rar_file::read_signature(&mut f).unwrap().unwrap();
 
     println!("format: {:?}", format);
     println!();
 
-    f.seek(io::SeekFrom::Start(
-        (start + format.signature_size()) as u64,
-    ))
-    .unwrap();
+    match format {
+        Format::Rar14 => {
+            let block = rar14::MainHeader::read(&mut f).unwrap();
+            println!("position: {}", block.position);
+            println!("header_size: {}", block.header_size);
+            println!("flags:");
+            println!("  is_volume: {}", block.flags.is_volume());
+            println!("  is_solid: {}", block.flags.is_solid());
+            println!("  is_locked: {}", block.flags.is_locked());
+            println!("  has_comment: {}", block.flags.has_comment());
+            println!("  is_comment_packed: {}", block.flags.is_comment_packed());
+            let comment = block.read_comment(&mut f).unwrap();
+            println!("{:?}", comment);
 
-    loop {
-        let block = read_block15(&mut f).unwrap();
-        block.print_info();
-        println!();
-        if let Block::EndArchive(_) = block {
-            break;
+            f.seek(SeekFrom::Start(block.position + block.header_size))
+                .unwrap();
+
+            loop {
+                let pos = f.stream_position().unwrap();
+                if pos == file_len {
+                    break;
+                }
+
+                let block = rar14::FileHeader::read(&mut f).unwrap();
+                println!("{:#?}", block);
+
+                f.seek(SeekFrom::Start(
+                    block.position + block.header_size + block.packed_data_size as u64,
+                ))
+                .unwrap();
+            }
         }
-        f.seek(SeekFrom::Start(block.position() + block.size()))
-            .unwrap();
+        Format::Rar15 => todo!(),
+        // loop {
+        //     let block = read_block15(&mut f).unwrap();
+        //     block.print_info();
+        //     println!();
+        //     if let Block::EndArchive(_) = block {
+        //         break;
+        //     }
+        //     f.seek(SeekFrom::Start(block.position() + block.size()))
+        //         .unwrap();
 
-        let pos = f.stream_position().unwrap();
+        //     let pos = f.stream_position().unwrap();
 
-        if pos == file_len {
-            break;
-        }
+        //     if pos == file_len {
+        //         break;
+        //     }
+        // },
+        Format::Rar50 => todo!(),
     }
 }
