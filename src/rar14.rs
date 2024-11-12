@@ -7,16 +7,16 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct MainHeader {
+pub struct MainBlock {
     pub position: u64,
     pub header_size: u16,
-    pub flags: MainHeaderFlags,
+    pub flags: MainBlockFlags,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct MainHeaderFlags(u8);
+pub struct MainBlockFlags(u8);
 
-impl MainHeaderFlags {
+impl MainBlockFlags {
     const VOLUME: u8 = 0x0001;
     const COMMENT: u8 = 0x0002;
     const LOCK: u8 = 0x0004;
@@ -54,7 +54,7 @@ impl MainHeaderFlags {
     }
 }
 
-impl Deref for MainHeaderFlags {
+impl Deref for MainBlockFlags {
     type Target = u8;
 
     fn deref(&self) -> &Self::Target {
@@ -62,7 +62,7 @@ impl Deref for MainHeaderFlags {
     }
 }
 
-impl MainHeader {
+impl MainBlock {
     const SIGNATURE_SIZE: u64 = 4;
     const SIZE: u64 = Self::SIGNATURE_SIZE + 3;
 
@@ -72,10 +72,10 @@ impl MainHeader {
         let header_size = read_u16(reader)?;
         let flags = read_u8(reader)?;
 
-        Ok(MainHeader {
+        Ok(MainBlock {
             position,
             header_size,
-            flags: MainHeaderFlags::new(flags),
+            flags: MainBlockFlags::new(flags),
         })
     }
 
@@ -116,23 +116,23 @@ impl MainHeader {
     }
 }
 
-impl DataSize for MainHeader {
+impl DataSize for MainBlock {
     fn data_size(&self) -> u64 {
         0
     }
 }
 
-impl HeaderSize for MainHeader {
+impl HeaderSize for MainBlock {
     fn header_size(&self) -> u64 {
         self.header_size as u64
     }
 }
 
 #[derive(Debug)]
-pub struct FileHeader {
+pub struct FileBlock {
     pub position: u64,
     pub header_size: u16,
-    pub flags: FileHeaderFlags,
+    pub flags: FileBlockFlags,
     pub packed_data_size: u32,
     pub unpacked_data_size: u32,
     pub crc16: u16,
@@ -144,15 +144,15 @@ pub struct FileHeader {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct FileHeaderFlags(u8);
+pub struct FileBlockFlags(u8);
 
-impl FileHeaderFlags {
+impl FileBlockFlags {
     const SPLIT_BEFORE: u8 = 0x01;
     const SPLIT_AFTER: u8 = 0x02;
     const PASSWORD: u8 = 0x04;
 
     pub fn new(flags: u8) -> Self {
-        FileHeaderFlags(flags)
+        FileBlockFlags(flags)
     }
 
     /// The first file is split from the previous volume
@@ -171,7 +171,7 @@ impl FileHeaderFlags {
     }
 }
 
-impl Deref for FileHeaderFlags {
+impl Deref for FileBlockFlags {
     type Target = u8;
 
     fn deref(&self) -> &Self::Target {
@@ -179,8 +179,8 @@ impl Deref for FileHeaderFlags {
     }
 }
 
-impl FileHeader {
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<FileHeader> {
+impl FileBlock {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<FileBlock> {
         let position = reader.stream_position()?;
 
         let packed_data_size = read_u32(reader)?;
@@ -189,7 +189,7 @@ impl FileHeader {
         let header_size = read_u16(reader)?;
         let mtime = read_u32(reader)?;
         let attributes = read_u8(reader)?;
-        let flags = read_u8(reader)?; // | LONG_BLOCK?
+        let flags = read_u8(reader)?;
         let unpack_version = if read_u8(reader)? == 2 { 13 } else { 10 };
         let name_size = read_u8(reader)? as usize;
         let method = read_u8(reader)?;
@@ -200,10 +200,10 @@ impl FileHeader {
         // TODO this should be OS-agnostic.
         let name = OsString::from_vec(name);
 
-        Ok(FileHeader {
+        Ok(FileBlock {
             position,
             header_size,
-            flags: FileHeaderFlags::new(flags),
+            flags: FileBlockFlags::new(flags),
             packed_data_size,
             unpacked_data_size,
             crc16,
@@ -216,13 +216,13 @@ impl FileHeader {
     }
 }
 
-impl HeaderSize for FileHeader {
+impl HeaderSize for FileBlock {
     fn header_size(&self) -> u64 {
         self.header_size as u64
     }
 }
 
-impl DataSize for FileHeader {
+impl DataSize for FileBlock {
     fn data_size(&self) -> u64 {
         self.packed_data_size as u64
     }

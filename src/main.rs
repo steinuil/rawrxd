@@ -31,7 +31,7 @@ fn main() {
 
     match format {
         Format::Rar14 => {
-            let block = rar14::MainHeader::read(&mut f).unwrap();
+            let block = rar14::MainBlock::read(&mut f).unwrap();
             println!("position: {}", block.position);
             println!("header_size: {}", block.header_size);
             println!("flags:");
@@ -52,7 +52,7 @@ fn main() {
                     break;
                 }
 
-                let block = rar14::FileHeader::read(&mut f).unwrap();
+                let block = rar14::FileBlock::read(&mut f).unwrap();
                 println!("{:#?}", block);
 
                 f.seek(SeekFrom::Start(block.position + block.full_size()))
