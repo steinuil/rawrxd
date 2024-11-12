@@ -1,4 +1,3 @@
-mod blocks;
 mod decompress;
 mod dos_time;
 pub mod format;
@@ -7,6 +6,7 @@ pub mod rar15;
 pub mod rar_file;
 mod rarvm;
 mod read;
+mod size;
 
 use std::{
     fs,
@@ -14,6 +14,7 @@ use std::{
 };
 
 use format::Format;
+use size::FullSize;
 
 fn main() {
     let mut args = std::env::args();
@@ -42,7 +43,7 @@ fn main() {
             let comment = block.read_comment(&mut f).unwrap();
             println!("{:?}", comment);
 
-            f.seek(SeekFrom::Start(block.position + block.header_size))
+            f.seek(SeekFrom::Start(block.position + block.full_size()))
                 .unwrap();
 
             loop {
@@ -54,10 +55,8 @@ fn main() {
                 let block = rar14::FileHeader::read(&mut f).unwrap();
                 println!("{:#?}", block);
 
-                f.seek(SeekFrom::Start(
-                    block.position + block.header_size + block.packed_data_size as u64,
-                ))
-                .unwrap();
+                f.seek(SeekFrom::Start(block.position + block.full_size()))
+                    .unwrap();
             }
         }
         Format::Rar15 => loop {

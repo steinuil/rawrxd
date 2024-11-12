@@ -1,15 +1,15 @@
-use std::io;
+use std::{io, ops::Deref};
 
-use crate::{dos_time, read::*};
+use crate::{
+    dos_time,
+    read::*,
+    size::{DataSize, HeaderSize},
+};
 
 const NAME_MAX_SIZE: u16 = 1000;
 
 pub trait BlockRead: Sized {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self>;
-}
-
-pub trait DataSize: Sized {
-    fn data_size(&self) -> u64;
 }
 
 #[derive(Debug)]
@@ -99,6 +99,14 @@ impl MainBlockFlags {
     /// Indicates whether encryption is present in the archive
     pub fn has_encrypt_version(&self) -> bool {
         self.0 & Self::ENCRYPTVER != 0
+    }
+}
+
+impl Deref for MainBlockFlags {
+    type Target = u16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -217,6 +225,14 @@ impl FileBlockFlags {
     // TODO not sure this is used
     pub fn has_extended_area(&self) -> bool {
         self.0 & Self::EXTAREA != 0
+    }
+}
+
+impl Deref for FileBlockFlags {
+    type Target = u16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -344,6 +360,14 @@ impl ServiceBlockFlags {
     // TODO not sure this is used
     pub fn has_extended_area(&self) -> bool {
         self.0 & Self::EXTAREA != 0
+    }
+}
+
+impl Deref for ServiceBlockFlags {
+    type Target = u16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -803,6 +827,14 @@ impl EndArchiveBlockFlags {
     }
 }
 
+impl Deref for EndArchiveBlockFlags {
+    type Target = u16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl BlockRead for EndArchiveBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = EndArchiveBlockFlags::new(flags);
@@ -838,6 +870,7 @@ impl DataSize for EndArchiveBlock {
 #[derive(Debug)]
 pub struct UnknownBlock {
     pub tag: u8,
+    pub flags: UnknownBlockFlags,
     pub data_size: Option<u32>,
 }
 
@@ -861,6 +894,14 @@ impl UnknownBlockFlags {
     }
 }
 
+impl Deref for UnknownBlockFlags {
+    type Target = u16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl UnknownBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16, tag: u8) -> io::Result<Self> {
         let flags = UnknownBlockFlags::new(flags);
@@ -872,7 +913,11 @@ impl UnknownBlock {
             None
         };
 
-        Ok(UnknownBlock { tag, data_size })
+        Ok(UnknownBlock {
+            tag,
+            flags,
+            data_size,
+        })
     }
 }
 
@@ -962,12 +1007,10 @@ impl Block {
             kind,
         })
     }
+}
 
-    pub fn header_size(&self) -> u64 {
+impl HeaderSize for Block {
+    fn header_size(&self) -> u64 {
         self.header_size as u64
-    }
-
-    pub fn full_size(&self) -> u64 {
-        self.header_size() + self.data_size()
     }
 }

@@ -1,11 +1,15 @@
 use std::{ffi::OsString, io, ops::Deref, os::unix::ffi::OsStringExt};
 
-use crate::{dos_time, read::*};
+use crate::{
+    dos_time,
+    read::*,
+    size::{DataSize, HeaderSize},
+};
 
 #[derive(Debug)]
 pub struct MainHeader {
     pub position: u64,
-    pub header_size: u64,
+    pub header_size: u16,
     pub flags: MainHeaderFlags,
 }
 
@@ -70,7 +74,7 @@ impl MainHeader {
 
         Ok(MainHeader {
             position,
-            header_size: header_size as u64,
+            header_size,
             flags: MainHeaderFlags::new(flags),
         })
     }
@@ -112,10 +116,22 @@ impl MainHeader {
     }
 }
 
+impl DataSize for MainHeader {
+    fn data_size(&self) -> u64 {
+        0
+    }
+}
+
+impl HeaderSize for MainHeader {
+    fn header_size(&self) -> u64 {
+        self.header_size as u64
+    }
+}
+
 #[derive(Debug)]
 pub struct FileHeader {
     pub position: u64,
-    pub header_size: u64,
+    pub header_size: u16,
     pub flags: FileHeaderFlags,
     pub packed_data_size: u32,
     pub unpacked_data_size: u32,
@@ -170,7 +186,7 @@ impl FileHeader {
         let packed_data_size = read_u32(reader)?;
         let unpacked_data_size = read_u32(reader)?;
         let crc16 = read_u16(reader)?;
-        let header_size = read_u16(reader)? as u64;
+        let header_size = read_u16(reader)?;
         let mtime = read_u32(reader)?;
         let attributes = read_u8(reader)?;
         let flags = read_u8(reader)?; // | LONG_BLOCK?
@@ -197,5 +213,17 @@ impl FileHeader {
             method,
             name,
         })
+    }
+}
+
+impl HeaderSize for FileHeader {
+    fn header_size(&self) -> u64 {
+        self.header_size as u64
+    }
+}
+
+impl DataSize for FileHeader {
+    fn data_size(&self) -> u64 {
+        self.packed_data_size as u64
     }
 }
