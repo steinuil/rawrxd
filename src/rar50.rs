@@ -804,18 +804,9 @@ int_enum! {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct FileSystemRedirectionRecordFlags(u64);
-
-impl FileSystemRedirectionRecordFlags {
-    const DIR: u64 = 0x0001;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn is_directory(&self) -> bool {
-        self.0 & Self::DIR != 0
+flags! {
+    pub struct FileSystemRedirectionRecordFlags(u16) {
+        pub is_directory = 0x0001;
     }
 }
 
@@ -825,7 +816,7 @@ impl FileSystemRedirectionRecord {
         let redirection_type = (redirection_type as u16).into();
 
         let (flags, _) = read_vint(reader)?;
-        let flags = FileSystemRedirectionRecordFlags::new(flags);
+        let flags = FileSystemRedirectionRecordFlags::new(flags as u16);
 
         let (name_length, _) = read_vint(reader)?;
         let name = read_vec(reader, name_length as usize)?;
