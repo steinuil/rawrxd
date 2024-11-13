@@ -78,6 +78,10 @@ fn main() {
         Format::Rar50 => loop {
             let block = rar50::Block::read(&mut f).unwrap();
             println!("{block:#?}");
+            if let rar50::BlockKind::EndArchive(_) = block.kind {
+                break;
+            }
+
             f.seek(SeekFrom::Start(block.position + block.full_size()))
                 .unwrap();
 

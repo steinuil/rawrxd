@@ -8,18 +8,18 @@ use crate::{
 #[derive(Debug)]
 pub struct Block {
     pub position: u64,
-    pub flags: BaseHeaderFlags,
+    pub flags: CommonFlags,
     pub header_crc32: u32,
     pub header_size: u64,
     pub extra_area_size: Option<u64>,
     pub data_size: Option<u64>,
-    pub kind: u64,
+    pub kind: BlockKind,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct BaseHeaderFlags(u64);
+pub struct CommonFlags(u64);
 
-impl BaseHeaderFlags {
+impl CommonFlags {
     const EXTRA: u64 = 0x0001;
     const DATA: u64 = 0x0002;
     const SKIP_IF_UNKNOWN: u64 = 0x0004;
@@ -68,7 +68,7 @@ impl BaseHeaderFlags {
     }
 }
 
-impl Deref for BaseHeaderFlags {
+impl Deref for CommonFlags {
     type Target = u64;
 
     fn deref(&self) -> &Self::Target {
@@ -76,8 +76,18 @@ impl Deref for BaseHeaderFlags {
     }
 }
 
+#[derive(Debug)]
+pub enum BlockKind {
+    Main(MainBlock),
+    File(FileBlock),
+    Service(ServiceBlock),
+    Crypt(CryptBlock),
+    EndArchive(EndArchiveBlock),
+    Unknown(UnknownBlock),
+}
+
 mod block {
-    pub const MARKER: u64 = 0x00;
+    // pub const MARKER: u64 = 0x00;
     pub const MAIN: u64 = 0x01;
     pub const FILE: u64 = 0x02;
     pub const SERVICE: u64 = 0x03;
@@ -94,10 +104,10 @@ impl Block {
         let (header_size, vint_size) = read_vint(reader)?;
         let full_header_size = header_size + vint_size as u64 + 4;
 
-        let (kind, _) = read_vint(reader)?;
+        let (header_type, _) = read_vint(reader)?;
 
         let (flags, _) = read_vint(reader)?;
-        let flags = BaseHeaderFlags::new(flags);
+        let flags = CommonFlags::new(flags);
 
         let extra_area_size = if flags.has_extra_area() {
             Some(read_vint(reader)?.0)
@@ -109,6 +119,15 @@ impl Block {
             Some(read_vint(reader)?.0)
         } else {
             None
+        };
+
+        let kind = match header_type {
+            block::MAIN => BlockKind::Main(MainBlock::read(reader)?),
+            block::FILE => BlockKind::File(FileBlock::read(reader)?),
+            block::SERVICE => BlockKind::Service(ServiceBlock::read(reader)?),
+            block::CRYPT => BlockKind::Crypt(CryptBlock::read(reader)?),
+            block::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader)?),
+            _ => BlockKind::Unknown(UnknownBlock::read(reader, header_type)?),
         };
 
         Ok(Block {
@@ -263,5 +282,260 @@ impl MainBlock {
             flags,
             volume_number,
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct FileBlock {
+    pub flags: FileBlockFlags,
+    pub unpacked_size: u64,
+    pub attributes: u64,
+    pub mtime: Option<time::PrimitiveDateTime>,
+    pub data_crc32: Option<u32>,
+    pub compression_info: u64,
+    pub host_os: HostOs,
+    pub name: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FileBlockFlags(u64);
+
+impl FileBlockFlags {
+    const DIRECTORY: u64 = 0x0001;
+    const UTIME: u64 = 0x0002;
+    const CRC32: u64 = 0x0004;
+    const UNPUNKNOWN: u64 = 0x0008;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.0 & Self::DIRECTORY != 0
+    }
+
+    pub fn has_mtime(&self) -> bool {
+        self.0 & Self::UTIME != 0
+    }
+
+    pub fn has_crc32(&self) -> bool {
+        self.0 & Self::CRC32 != 0
+    }
+
+    pub fn unknown_unpacked_size(&self) -> bool {
+        self.0 & Self::UNPUNKNOWN != 0
+    }
+}
+
+impl Deref for FileBlockFlags {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HostOs {
+    Windows = 0,
+    Unix = 1,
+}
+
+impl TryFrom<u64> for HostOs {
+    type Error = u64;
+
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        match value {
+            v if v == HostOs::Windows as u64 => Ok(HostOs::Windows),
+            v if v == HostOs::Unix as u64 => Ok(HostOs::Unix),
+            _ => Err(value),
+        }
+    }
+}
+
+impl FileBlock {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = FileBlockFlags::new(flags);
+
+        // TODO should signal that this value might be garbage if the block
+        // has the UNPUNKNOWN flag set
+        let (unpacked_size, _) = read_vint(reader)?;
+
+        let (attributes, _) = read_vint(reader)?;
+
+        let mtime = if flags.has_mtime() {
+            let mtime = read_u32(reader)?;
+            let mtime = time::OffsetDateTime::from_unix_timestamp(mtime.into()).unwrap();
+            let mtime = time::PrimitiveDateTime::new(mtime.date(), mtime.time());
+            Some(mtime)
+        } else {
+            None
+        };
+
+        let data_crc32 = if flags.has_crc32() {
+            Some(read_u32(reader)?)
+        } else {
+            None
+        };
+
+        let (compression_info, _) = read_vint(reader)?;
+
+        let (host_os, _) = read_vint(reader)?;
+
+        let (name_length, _) = read_vint(reader)?;
+        let name = read_vec(reader, name_length as usize)?;
+
+        Ok(FileBlock {
+            flags,
+            unpacked_size,
+            attributes,
+            mtime,
+            data_crc32,
+            compression_info,
+            host_os: host_os.try_into().unwrap(),
+            name,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ServiceBlock {
+    pub flags: ServiceBlockFlags,
+    pub unpacked_size: u64,
+    pub mtime: Option<time::PrimitiveDateTime>,
+    pub data_crc32: Option<u32>,
+    pub compression_info: u64,
+    pub host_os: HostOs,
+    pub name: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ServiceBlockFlags(u64);
+
+impl ServiceBlockFlags {
+    const UTIME: u64 = 0x0002;
+    const CRC32: u64 = 0x0004;
+    const UNPUNKNOWN: u64 = 0x0008;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn has_mtime(&self) -> bool {
+        self.0 & Self::UTIME != 0
+    }
+
+    pub fn has_crc32(&self) -> bool {
+        self.0 & Self::CRC32 != 0
+    }
+
+    pub fn unknown_unpacked_size(&self) -> bool {
+        self.0 & Self::UNPUNKNOWN != 0
+    }
+}
+
+impl Deref for ServiceBlockFlags {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ServiceBlock {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = ServiceBlockFlags::new(flags);
+
+        // TODO should signal that this value might be garbage if the block
+        // has the UNPUNKNOWN flag set
+        let (unpacked_size, _) = read_vint(reader)?;
+
+        let (attributes, _) = read_vint(reader)?;
+        if attributes != 0 {
+            // log a warning or something
+        }
+
+        let mtime = if flags.has_mtime() {
+            let mtime = read_u32(reader)?;
+            let mtime = time::OffsetDateTime::from_unix_timestamp(mtime.into()).unwrap();
+            let mtime = time::PrimitiveDateTime::new(mtime.date(), mtime.time());
+            Some(mtime)
+        } else {
+            None
+        };
+
+        let data_crc32 = if flags.has_crc32() {
+            Some(read_u32(reader)?)
+        } else {
+            None
+        };
+
+        let (compression_info, _) = read_vint(reader)?;
+
+        let (host_os, _) = read_vint(reader)?;
+
+        let (name_length, _) = read_vint(reader)?;
+        let name = read_vec(reader, name_length as usize)?;
+
+        Ok(ServiceBlock {
+            flags,
+            unpacked_size,
+            mtime,
+            data_crc32,
+            compression_info,
+            host_os: host_os.try_into().unwrap(),
+            name,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct EndArchiveBlock {
+    pub flags: EndArchiveBlockFlags,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EndArchiveBlockFlags(u64);
+
+impl EndArchiveBlockFlags {
+    const NEXTVOLUME: u64 = 0x0001;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn has_next_volume(&self) -> bool {
+        self.0 & Self::NEXTVOLUME != 0
+    }
+}
+
+impl Deref for EndArchiveBlockFlags {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl EndArchiveBlock {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = EndArchiveBlockFlags::new(flags);
+
+        Ok(EndArchiveBlock { flags })
+    }
+}
+
+#[derive(Debug)]
+pub struct UnknownBlock {
+    pub tag: u64,
+}
+
+impl UnknownBlock {
+    pub fn read<R: io::Read + io::Seek>(_reader: &mut R, tag: u64) -> io::Result<Self> {
+        Ok(UnknownBlock { tag })
     }
 }
