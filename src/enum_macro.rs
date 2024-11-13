@@ -1,5 +1,5 @@
 /// Automatically implement TryFrom<T> for the repr(T) of the enum.
-macro_rules! mk_enum {
+macro_rules! int_enum {
     {
         $(#[doc = $struct_doc:expr])*
         #[repr($type:ty)]

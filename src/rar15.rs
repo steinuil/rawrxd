@@ -90,7 +90,7 @@ impl DataSize for MainBlock {
     }
 }
 
-mk_enum! {
+int_enum! {
     #[repr(u8)]
     pub enum HostOs {
         MsDos = 0,
@@ -394,7 +394,7 @@ impl DataSize for ProtectBlock {
     }
 }
 
-mk_enum! {
+int_enum! {
     #[repr(u16)]
     pub enum SubBlockType {
         // EA_HEAD

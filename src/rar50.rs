@@ -177,7 +177,7 @@ flags! {
     }
 }
 
-mk_enum! {
+int_enum! {
     #[repr(u8)]
     pub enum EncryptionVersion {
         Aes256 = 0,
@@ -417,7 +417,7 @@ flags! {
     }
 }
 
-mk_enum! {
+int_enum! {
     #[repr(u8)]
     pub enum HostOs {
         Windows = 0,
@@ -686,7 +686,7 @@ pub struct FileSystemRedirectionRecord {
     pub name: String,
 }
 
-mk_enum! {
+int_enum! {
     #[repr(u16)]
     pub enum FileSystemRedirectionType {
         UnixSymlink = 0x0001,
