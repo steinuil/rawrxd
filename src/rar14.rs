@@ -106,7 +106,7 @@ pub struct FileBlock {
     pub packed_data_size: u32,
     pub unpacked_data_size: u32,
     pub crc16: u16,
-    pub mtime: time::PrimitiveDateTime,
+    pub modification_time: time::PrimitiveDateTime,
     pub attributes: u8,
     pub unpack_version: u8,
     pub method: u8,
@@ -134,9 +134,15 @@ impl FileBlock {
         let unpacked_data_size = read_u32(reader)?;
         let crc16 = read_u16(reader)?;
         let header_size = read_u16(reader)?;
-        let mtime = read_u32(reader)?;
+
+        let modification_time = read_u32(reader)?;
+        let modification_time = dos_time::parse(modification_time);
+
         let attributes = read_u8(reader)?;
+
         let flags = read_u8(reader)?;
+        let flags = FileBlockFlags::new(flags);
+
         let unpack_version = if read_u8(reader)? == 2 { 13 } else { 10 };
         let name_size = read_u8(reader)? as usize;
         let method = read_u8(reader)?;
@@ -148,11 +154,11 @@ impl FileBlock {
         Ok(FileBlock {
             position,
             header_size,
-            flags: FileBlockFlags::new(flags),
+            flags,
             packed_data_size,
             unpacked_data_size,
             crc16,
-            mtime: dos_time::parse(mtime),
+            modification_time,
             attributes,
             unpack_version,
             method,

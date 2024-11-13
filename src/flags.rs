@@ -1,13 +1,15 @@
 macro_rules! flags {
     {
+        $(#[doc = $struct_doc:expr])*
         $struct_vis:vis struct $struct_name:ident($type:ty) {
             $(
-                $(#[doc = $doc:expr])*
+                $(#[doc = $field_doc:expr])*
                 $field_vis:vis $field_name:ident = $field_value:expr;
             )*
         }
     } => {
         #[derive(Clone, Copy)]
+        $(#[doc = $struct_doc])*
         $struct_vis struct $struct_name($type);
 
         impl $struct_name {
@@ -16,7 +18,7 @@ macro_rules! flags {
             }
 
             $(
-                $(#[doc = $doc])*
+                $(#[doc = $field_doc])*
                 $field_vis fn $field_name(&self) -> bool {
                     self.0 & $field_value != 0
                 }

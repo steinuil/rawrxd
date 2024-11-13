@@ -85,15 +85,6 @@ pub enum BlockKind {
     Unknown(UnknownBlock),
 }
 
-mod block {
-    // pub const MARKER: u64 = 0x00;
-    pub const MAIN: u64 = 0x01;
-    pub const FILE: u64 = 0x02;
-    pub const SERVICE: u64 = 0x03;
-    pub const CRYPT: u64 = 0x04;
-    pub const ENDARC: u64 = 0x05;
-}
-
 #[derive(Debug)]
 struct CommonHeader {
     pub flags: CommonFlags,
@@ -101,6 +92,13 @@ struct CommonHeader {
 }
 
 impl Block {
+    // const MARKER: u64 = 0x00;
+    const MAIN: u64 = 0x01;
+    const FILE: u64 = 0x02;
+    const SERVICE: u64 = 0x03;
+    const CRYPT: u64 = 0x04;
+    const ENDARC: u64 = 0x05;
+
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let position = reader.stream_position()?;
 
@@ -132,11 +130,11 @@ impl Block {
         };
 
         let kind = match header_type {
-            block::MAIN => BlockKind::Main(MainBlock::read(reader, &common_header)?),
-            block::FILE => BlockKind::File(FileBlock::read(reader, &common_header)?),
-            block::SERVICE => BlockKind::Service(ServiceBlock::read(reader)?),
-            block::CRYPT => BlockKind::Crypt(CryptBlock::read(reader)?),
-            block::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader)?),
+            Self::MAIN => BlockKind::Main(MainBlock::read(reader, &common_header)?),
+            Self::FILE => BlockKind::File(FileBlock::read(reader, &common_header)?),
+            Self::SERVICE => BlockKind::Service(ServiceBlock::read(reader)?),
+            Self::CRYPT => BlockKind::Crypt(CryptBlock::read(reader)?),
+            Self::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader)?),
             _ => BlockKind::Unknown(UnknownBlock::read(reader, header_type)?),
         };
 
@@ -166,7 +164,7 @@ impl DataSize for Block {
 
 #[derive(Debug)]
 pub struct CryptBlock {
-    pub encryption_version: u64,
+    pub encryption_version: EncryptionVersion,
     pub flags: CryptBlockFlags,
     pub kdf_count: u8,
     pub salt: [u8; 16],
@@ -179,15 +177,17 @@ flags! {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum EncryptionVersion {
-    Aes256 = 0,
+mk_enum! {
+    #[repr(u8)]
+    pub enum EncryptionVersion {
+        Aes256 = 0,
+    }
 }
 
 impl CryptBlock {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (encryption_version, _) = read_vint(reader)?;
+        let encryption_version = (encryption_version as u8).try_into().unwrap();
 
         let (flags, _) = read_vint(reader)?;
         let flags = CryptBlockFlags::new(flags as u16);
@@ -362,12 +362,10 @@ pub enum MainBlockRecord {
     Unknown(UnknownRecord),
 }
 
-mod main_record {
-    pub const LOCATOR: u64 = 0x0001;
-    pub const METADATA: u64 = 0x0002;
-}
-
 impl MainBlock {
+    const LOCATOR: u64 = 0x0001;
+    const METADATA: u64 = 0x0002;
+
     pub(self) fn read<R: io::Read + io::Seek>(
         reader: &mut R,
         common_header: &CommonHeader,
@@ -383,8 +381,8 @@ impl MainBlock {
 
         let records = read_records(reader, common_header, |reader, record_type| {
             Ok(match record_type {
-                main_record::LOCATOR => MainBlockRecord::Locator(LocatorRecord::read(reader)?),
-                main_record::METADATA => MainBlockRecord::Metadata(MetadataRecord::read(reader)?),
+                Self::LOCATOR => MainBlockRecord::Locator(LocatorRecord::read(reader)?),
+                Self::METADATA => MainBlockRecord::Metadata(MetadataRecord::read(reader)?),
                 _ => MainBlockRecord::Unknown(UnknownRecord::new(record_type)),
             })
         })?;
@@ -419,22 +417,11 @@ flags! {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum HostOs {
-    Windows = 0,
-    Unix = 1,
-}
-
-impl TryFrom<u64> for HostOs {
-    type Error = u64;
-
-    fn try_from(value: u64) -> Result<Self, Self::Error> {
-        match value {
-            v if v == HostOs::Windows as u64 => Ok(HostOs::Windows),
-            v if v == HostOs::Unix as u64 => Ok(HostOs::Unix),
-            _ => Err(value),
-        }
+mk_enum! {
+    #[repr(u8)]
+    pub enum HostOs {
+        Windows = 0,
+        Unix = 1,
     }
 }
 
@@ -512,7 +499,7 @@ impl FileBlock {
             mtime,
             data_crc32,
             compression_info,
-            host_os: host_os.try_into().unwrap(),
+            host_os: (host_os as u8).try_into().unwrap(),
             name,
             records,
         })
@@ -580,7 +567,7 @@ impl ServiceBlock {
             mtime,
             data_crc32,
             compression_info,
-            host_os: host_os.try_into().unwrap(),
+            host_os: (host_os as u8).try_into().unwrap(),
             name,
         })
     }
@@ -699,28 +686,14 @@ pub struct FileSystemRedirectionRecord {
     pub name: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u16)]
-pub enum FileSystemRedirectionType {
-    UnixSymlink = 0x0001,
-    WindowsSymlink = 0x0002,
-    WindowsJunction = 0x0003,
-    HardLink = 0x0004,
-    FileCopy = 0x0005,
-}
-
-impl TryFrom<u64> for FileSystemRedirectionType {
-    type Error = u64;
-
-    fn try_from(value: u64) -> Result<Self, Self::Error> {
-        match value {
-            v if v == Self::UnixSymlink as u64 => Ok(Self::UnixSymlink),
-            v if v == Self::WindowsSymlink as u64 => Ok(Self::WindowsSymlink),
-            v if v == Self::WindowsJunction as u64 => Ok(Self::WindowsJunction),
-            v if v == Self::HardLink as u64 => Ok(Self::HardLink),
-            v if v == Self::FileCopy as u64 => Ok(Self::FileCopy),
-            _ => Err(value),
-        }
+mk_enum! {
+    #[repr(u16)]
+    pub enum FileSystemRedirectionType {
+        UnixSymlink = 0x0001,
+        WindowsSymlink = 0x0002,
+        WindowsJunction = 0x0003,
+        HardLink = 0x0004,
+        FileCopy = 0x0005,
     }
 }
 
@@ -742,7 +715,7 @@ impl FileSystemRedirectionRecordFlags {
 impl FileSystemRedirectionRecord {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (redirection_type, _) = read_vint(reader)?;
-        let redirection_type = redirection_type.try_into().unwrap();
+        let redirection_type = (redirection_type as u16).try_into().unwrap();
 
         let (flags, _) = read_vint(reader)?;
         let flags = FileSystemRedirectionRecordFlags::new(flags);

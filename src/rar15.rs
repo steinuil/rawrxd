@@ -55,9 +55,8 @@ flags! {
         /// Set only by RAR 3.0+
         pub is_first_volume = 0x0100;
 
-        /// Indicates whether encryption is present in the archive
-        // TODO what does that mean?
-        pub has_encrypt_version = 0x200;
+        /// Indicates whether encryption is present in the archive.
+        pub(self) has_encrypt_version = 0x200;
     }
 }
 
@@ -91,30 +90,15 @@ impl DataSize for MainBlock {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum HostOs {
-    MsDos = 0,
-    Os2 = 1,
-    Win32 = 2,
-    Unix = 3,
-    MacOs = 4,
-    BeOs = 5,
-}
-
-impl TryFrom<u8> for HostOs {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            v if v == HostOs::MsDos as u8 => Ok(HostOs::MsDos),
-            v if v == HostOs::Os2 as u8 => Ok(HostOs::Os2),
-            v if v == HostOs::Win32 as u8 => Ok(HostOs::Win32),
-            v if v == HostOs::Unix as u8 => Ok(HostOs::Unix),
-            v if v == HostOs::MacOs as u8 => Ok(HostOs::MacOs),
-            v if v == HostOs::BeOs as u8 => Ok(HostOs::BeOs),
-            _ => Err(()),
-        }
+mk_enum! {
+    #[repr(u8)]
+    pub enum HostOs {
+        MsDos = 0,
+        Os2 = 1,
+        Win32 = 2,
+        Unix = 3,
+        MacOs = 4,
+        BeOs = 5,
     }
 }
 
@@ -138,13 +122,13 @@ flags! {
         pub has_comment = 0x0002;
 
         /// The file size is larger than u32::MAX.
-        pub has_large_size = 0x0100;
+        pub(self) has_large_size = 0x0100;
 
         /// Filename is in UTF-8 format.
-        pub is_filename_unicode = 0x0200;
+        pub(self) is_filename_unicode = 0x0200;
 
         /// File is encrypted with salt.
-        pub has_salt = 0x0400;
+        pub(self) has_salt = 0x0400;
 
         // TODO document this
         pub has_version = 0x0800;
@@ -247,10 +231,10 @@ flags! {
         pub has_comment = 0x0002;
 
         /// The file size is larger than u32::MAX.
-        pub has_large_size = 0x0100;
+        pub(self) has_large_size = 0x0100;
 
         /// Data is encrypted with salt.
-        pub has_salt = 0x0400;
+        pub(self) has_salt = 0x0400;
 
         // TODO document this
         pub has_version = 0x0800;
@@ -410,36 +394,21 @@ impl DataSize for ProtectBlock {
     }
 }
 
-#[derive(Debug)]
-#[repr(u16)]
-pub enum SubBlockType {
-    // EA_HEAD
-    Os2ExtendedAttributes = 0x100,
-    // UO_HEAD
-    UnixOwner = 0x101,
-    // MAC_HEAD
-    MacOsInfo = 0x102,
-    // BEEA_HEAD
-    BeOsExtendedAttributes = 0x103,
-    // NTACL_HEAD
-    NtfsAcl = 0x104,
-    // STREAM_HEAD
-    NtfsStream = 0x105,
-}
-
-impl TryFrom<u16> for SubBlockType {
-    type Error = u16;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            v if v == Self::Os2ExtendedAttributes as u16 => Ok(Self::Os2ExtendedAttributes),
-            v if v == Self::UnixOwner as u16 => Ok(Self::UnixOwner),
-            v if v == Self::MacOsInfo as u16 => Ok(Self::MacOsInfo),
-            v if v == Self::BeOsExtendedAttributes as u16 => Ok(Self::BeOsExtendedAttributes),
-            v if v == Self::NtfsAcl as u16 => Ok(Self::NtfsAcl),
-            v if v == Self::NtfsStream as u16 => Ok(Self::NtfsStream),
-            _ => Err(value),
-        }
+mk_enum! {
+    #[repr(u16)]
+    pub enum SubBlockType {
+        // EA_HEAD
+        Os2ExtendedAttributes = 0x100,
+        // UO_HEAD
+        UnixOwner = 0x101,
+        // MAC_HEAD
+        MacOsInfo = 0x102,
+        // BEEA_HEAD
+        BeOsExtendedAttributes = 0x103,
+        // NTACL_HEAD
+        NtfsAcl = 0x104,
+        // STREAM_HEAD
+        NtfsStream = 0x105,
     }
 }
 
@@ -487,7 +456,8 @@ pub struct ExtendedAttributesSubBlock {
     pub extended_attributes_crc32: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ExtendedAttributesFs {
     Os2,
     BeOs,
@@ -818,18 +788,6 @@ pub enum BlockKind {
     Unknown(UnknownBlock),
 }
 
-mod block {
-    pub const MAIN: u8 = 0x73;
-    pub const FILE: u8 = 0x74;
-    pub const COMMENT: u8 = 0x75;
-    pub const AV: u8 = 0x76;
-    pub const SUB: u8 = 0x77;
-    pub const PROTECT: u8 = 0x78;
-    pub const SIGN: u8 = 0x79;
-    pub const SERVICE: u8 = 0x7a;
-    pub const ENDARC: u8 = 0x7b;
-}
-
 #[derive(Debug)]
 pub struct Block {
     pub position: u64,
@@ -856,6 +814,16 @@ impl DataSize for Block {
 }
 
 impl Block {
+    const MAIN: u8 = 0x73;
+    const FILE: u8 = 0x74;
+    const COMMENT: u8 = 0x75;
+    const AV: u8 = 0x76;
+    const SUB: u8 = 0x77;
+    const PROTECT: u8 = 0x78;
+    const SIGN: u8 = 0x79;
+    const SERVICE: u8 = 0x7a;
+    const ENDARC: u8 = 0x7b;
+
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let position = reader.stream_position()?;
 
@@ -865,15 +833,15 @@ impl Block {
         let header_size = read_u16(reader)?;
 
         let kind = match block_type {
-            block::MAIN => BlockKind::Main(MainBlock::read(reader, flags)?),
-            block::FILE => BlockKind::File(FileBlock::read(reader, flags)?),
-            block::SERVICE => BlockKind::Service(ServiceBlock::read(reader, flags, header_size)?),
-            block::COMMENT => BlockKind::Comment(CommentBlock::read(reader, flags)?),
-            block::AV => BlockKind::Av(AvBlock::read(reader, flags)?),
-            block::SUB => BlockKind::Sub(SubBlock::read(reader, flags)?),
-            block::PROTECT => BlockKind::Protect(ProtectBlock::read(reader, flags)?),
-            block::SIGN => BlockKind::Sign(SignBlock::read(reader, flags)?),
-            block::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader, flags)?),
+            Self::MAIN => BlockKind::Main(MainBlock::read(reader, flags)?),
+            Self::FILE => BlockKind::File(FileBlock::read(reader, flags)?),
+            Self::SERVICE => BlockKind::Service(ServiceBlock::read(reader, flags, header_size)?),
+            Self::COMMENT => BlockKind::Comment(CommentBlock::read(reader, flags)?),
+            Self::AV => BlockKind::Av(AvBlock::read(reader, flags)?),
+            Self::SUB => BlockKind::Sub(SubBlock::read(reader, flags)?),
+            Self::PROTECT => BlockKind::Protect(ProtectBlock::read(reader, flags)?),
+            Self::SIGN => BlockKind::Sign(SignBlock::read(reader, flags)?),
+            Self::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader, flags)?),
             _ => BlockKind::Unknown(UnknownBlock::read(reader, flags, block_type)?),
         };
 

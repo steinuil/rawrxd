@@ -1,6 +1,8 @@
 mod decompress;
 mod dos_time;
 #[macro_use]
+mod enum_macro;
+#[macro_use]
 mod flags;
 pub mod format;
 mod parse_result;
