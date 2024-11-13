@@ -6,11 +6,108 @@ use crate::{
     size::{DataSize, HeaderSize},
 };
 
-const NAME_MAX_SIZE: u16 = 1000;
-
-pub trait BlockRead: Sized {
-    fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self>;
+#[derive(Debug)]
+pub struct Block {
+    pub position: u64,
+    pub header_crc16: u16,
+    pub flags: CommonFlags,
+    pub header_size: u16,
+    pub kind: BlockKind,
 }
+
+flags! {
+    pub struct CommonFlags(u16) {
+        /// Unknown blocks with this flag must be skipped when updating
+        /// an archive.
+        pub skip_if_unknown = 0x4000;
+
+        /// Data area is present in the end of block header.
+        pub contains_data = 0x8000;
+    }
+}
+
+impl Block {
+    const MAIN: u8 = 0x73;
+    const FILE: u8 = 0x74;
+    const COMMENT: u8 = 0x75;
+    const AV: u8 = 0x76;
+    const SUB: u8 = 0x77;
+    const PROTECT: u8 = 0x78;
+    const SIGN: u8 = 0x79;
+    const SERVICE: u8 = 0x7a;
+    const ENDARC: u8 = 0x7b;
+
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let position = reader.stream_position()?;
+
+        let header_crc16 = read_u16(reader)?;
+        let block_type = read_u8(reader)?;
+        let flags = read_u16(reader)?;
+        let header_size = read_u16(reader)?;
+
+        let common_flags = CommonFlags::new(flags);
+
+        let kind = match block_type {
+            Self::MAIN => BlockKind::Main(MainBlock::read(reader, flags)?),
+            Self::FILE => BlockKind::File(FileBlock::read(reader, flags)?),
+            Self::SERVICE => BlockKind::Service(ServiceBlock::read(reader, flags, header_size)?),
+            Self::COMMENT => BlockKind::Comment(CommentBlock::read(reader, flags)?),
+            Self::AV => BlockKind::Av(AvBlock::read(reader, flags)?),
+            Self::SUB => BlockKind::Sub(SubBlock::read(reader, flags)?),
+            Self::PROTECT => BlockKind::Protect(ProtectBlock::read(reader, flags)?),
+            Self::SIGN => BlockKind::Sign(SignBlock::read(reader, flags)?),
+            Self::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader, flags)?),
+            _ => BlockKind::Unknown(UnknownBlock::read(reader, flags, block_type)?),
+        };
+
+        Ok(Block {
+            position,
+            header_crc16,
+            flags: common_flags,
+            header_size,
+            kind,
+        })
+    }
+}
+
+impl HeaderSize for Block {
+    fn header_size(&self) -> u64 {
+        self.header_size as u64
+    }
+}
+
+impl DataSize for Block {
+    fn data_size(&self) -> u64 {
+        match &self.kind {
+            BlockKind::Main(b) => b.data_size(),
+            BlockKind::File(b) => b.data_size(),
+            BlockKind::Service(b) => b.data_size(),
+            BlockKind::EndArchive(b) => b.data_size(),
+            BlockKind::Comment(b) => b.data_size(),
+            BlockKind::Av(b) => b.data_size(),
+            BlockKind::Sub(b) => b.data_size(),
+            BlockKind::Protect(b) => b.data_size(),
+            BlockKind::Sign(b) => b.data_size(),
+            BlockKind::Unknown(b) => b.data_size(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum BlockKind {
+    Main(MainBlock),
+    File(FileBlock),
+    Service(ServiceBlock),
+    EndArchive(EndArchiveBlock),
+    Comment(CommentBlock),
+    Av(AvBlock),
+    Sub(SubBlock),
+    Protect(ProtectBlock),
+    Sign(SignBlock),
+    Unknown(UnknownBlock),
+}
+
+const NAME_MAX_SIZE: u16 = 1000;
 
 #[derive(Debug)]
 pub struct MainBlock {
@@ -56,11 +153,11 @@ flags! {
         pub is_first_volume = 0x0100;
 
         /// Indicates whether encryption is present in the archive.
-        pub(self) has_encrypt_version = 0x200;
+        pub(self) has_encrypt_version = 0x0200;
     }
 }
 
-impl BlockRead for MainBlock {
+impl MainBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = MainBlockFlags::new(flags);
 
@@ -147,7 +244,7 @@ impl FileBlock {
     const SALT_SIZE: usize = 8;
 }
 
-impl BlockRead for FileBlock {
+impl FileBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = FileBlockFlags::new(flags);
 
@@ -334,7 +431,7 @@ pub struct CommentBlock {
     pub crc16: u16,
 }
 
-impl BlockRead for CommentBlock {
+impl CommentBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let unpacked_data_size = read_u16(reader)?;
         let unpack_version = read_u8(reader)?;
@@ -370,7 +467,7 @@ impl ProtectBlock {
     const MARK_SIZE: usize = 8;
 }
 
-impl BlockRead for ProtectBlock {
+impl ProtectBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let data_size = read_u32(reader)?;
         let version = read_u8(reader)?;
@@ -528,7 +625,7 @@ pub struct SubBlock {
     pub sub_block: Sub,
 }
 
-impl BlockRead for SubBlock {
+impl SubBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let data_size = read_u32(reader)?;
         let sub_type = read_u16(reader)?;
@@ -589,7 +686,7 @@ pub struct SignBlock {
     pub user_name_size: u16,
 }
 
-impl BlockRead for SignBlock {
+impl SignBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let creation_time = read_u32(reader)?;
         let archive_name_size = read_u16(reader)?;
@@ -618,7 +715,7 @@ pub struct AvBlock {
     pub av_info_crc32: u32,
 }
 
-impl BlockRead for AvBlock {
+impl AvBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
@@ -671,7 +768,7 @@ impl Deref for EndArchiveBlockFlags {
     }
 }
 
-impl BlockRead for EndArchiveBlock {
+impl EndArchiveBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = EndArchiveBlockFlags::new(flags);
 
@@ -706,52 +803,13 @@ impl DataSize for EndArchiveBlock {
 #[derive(Debug)]
 pub struct UnknownBlock {
     pub tag: u8,
-    pub flags: UnknownBlockFlags,
+    pub flags: CommonFlags,
     pub data_size: Option<u32>,
-}
-
-flags! {
-    pub struct UnknownBlockFlags_(u16) {
-        /// Unknown blocks with this flag must be skipped when updating
-        /// an archive.
-        pub skip_if_unknown = 0x4000;
-
-        /// Data area is present in the end of block header.
-        pub contains_data = 0x8000;
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct UnknownBlockFlags(u16);
-
-impl UnknownBlockFlags {
-    const SKIP_IF_UNKNOWN: u16 = 0x4000;
-    const LONG_BLOCK: u16 = 0x8000;
-
-    pub fn new(flags: u16) -> Self {
-        Self(flags)
-    }
-
-    pub fn skip_if_unknown(&self) -> bool {
-        self.0 & Self::SKIP_IF_UNKNOWN != 0
-    }
-
-    pub fn contains_data(&self) -> bool {
-        self.0 & Self::LONG_BLOCK != 0
-    }
-}
-
-impl Deref for UnknownBlockFlags {
-    type Target = u16;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
 }
 
 impl UnknownBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16, tag: u8) -> io::Result<Self> {
-        let flags = UnknownBlockFlags::new(flags);
+        let flags = CommonFlags::new(flags);
 
         let data_size = if flags.contains_data() {
             let data_size = read_u32(reader)?;
@@ -771,91 +829,5 @@ impl UnknownBlock {
 impl DataSize for UnknownBlock {
     fn data_size(&self) -> u64 {
         self.data_size.unwrap_or(0) as u64
-    }
-}
-
-#[derive(Debug)]
-pub enum BlockKind {
-    Main(MainBlock),
-    File(FileBlock),
-    Service(ServiceBlock),
-    EndArchive(EndArchiveBlock),
-    Comment(CommentBlock),
-    Av(AvBlock),
-    Sub(SubBlock),
-    Protect(ProtectBlock),
-    Sign(SignBlock),
-    Unknown(UnknownBlock),
-}
-
-#[derive(Debug)]
-pub struct Block {
-    pub position: u64,
-    pub header_crc16: u16,
-    pub header_size: u16,
-    pub kind: BlockKind,
-}
-
-impl DataSize for Block {
-    fn data_size(&self) -> u64 {
-        match &self.kind {
-            BlockKind::Main(b) => b.data_size(),
-            BlockKind::File(b) => b.data_size(),
-            BlockKind::Service(b) => b.data_size(),
-            BlockKind::EndArchive(b) => b.data_size(),
-            BlockKind::Comment(b) => b.data_size(),
-            BlockKind::Av(b) => b.data_size(),
-            BlockKind::Sub(b) => b.data_size(),
-            BlockKind::Protect(b) => b.data_size(),
-            BlockKind::Sign(b) => b.data_size(),
-            BlockKind::Unknown(b) => b.data_size(),
-        }
-    }
-}
-
-impl Block {
-    const MAIN: u8 = 0x73;
-    const FILE: u8 = 0x74;
-    const COMMENT: u8 = 0x75;
-    const AV: u8 = 0x76;
-    const SUB: u8 = 0x77;
-    const PROTECT: u8 = 0x78;
-    const SIGN: u8 = 0x79;
-    const SERVICE: u8 = 0x7a;
-    const ENDARC: u8 = 0x7b;
-
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
-        let position = reader.stream_position()?;
-
-        let header_crc16 = read_u16(reader)?;
-        let block_type = read_u8(reader)?;
-        let flags = read_u16(reader)?;
-        let header_size = read_u16(reader)?;
-
-        let kind = match block_type {
-            Self::MAIN => BlockKind::Main(MainBlock::read(reader, flags)?),
-            Self::FILE => BlockKind::File(FileBlock::read(reader, flags)?),
-            Self::SERVICE => BlockKind::Service(ServiceBlock::read(reader, flags, header_size)?),
-            Self::COMMENT => BlockKind::Comment(CommentBlock::read(reader, flags)?),
-            Self::AV => BlockKind::Av(AvBlock::read(reader, flags)?),
-            Self::SUB => BlockKind::Sub(SubBlock::read(reader, flags)?),
-            Self::PROTECT => BlockKind::Protect(ProtectBlock::read(reader, flags)?),
-            Self::SIGN => BlockKind::Sign(SignBlock::read(reader, flags)?),
-            Self::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader, flags)?),
-            _ => BlockKind::Unknown(UnknownBlock::read(reader, flags, block_type)?),
-        };
-
-        Ok(Block {
-            position,
-            header_crc16,
-            header_size,
-            kind,
-        })
-    }
-}
-
-impl HeaderSize for Block {
-    fn header_size(&self) -> u64 {
-        self.header_size as u64
     }
 }
