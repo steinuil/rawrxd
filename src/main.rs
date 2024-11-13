@@ -1,6 +1,7 @@
 mod decompress;
 mod dos_time;
 pub mod format;
+mod parse_result;
 pub mod rar14;
 pub mod rar15;
 pub mod rar50;

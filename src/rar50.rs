@@ -95,6 +95,12 @@ mod block {
     pub const ENDARC: u64 = 0x05;
 }
 
+#[derive(Debug)]
+struct CommonHeader {
+    pub flags: CommonFlags,
+    pub extra_area_size: Option<u64>,
+}
+
 impl Block {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let position = reader.stream_position()?;
@@ -121,8 +127,13 @@ impl Block {
             None
         };
 
+        let common_header = CommonHeader {
+            flags,
+            extra_area_size,
+        };
+
         let kind = match header_type {
-            block::MAIN => BlockKind::Main(MainBlock::read(reader)?),
+            block::MAIN => BlockKind::Main(MainBlock::read(reader, common_header)?),
             block::FILE => BlockKind::File(FileBlock::read(reader)?),
             block::SERVICE => BlockKind::Service(ServiceBlock::read(reader)?),
             block::CRYPT => BlockKind::Crypt(CryptBlock::read(reader)?),
@@ -222,6 +233,8 @@ impl CryptBlock {
 pub struct MainBlock {
     pub flags: MainBlockFlags,
     pub volume_number: Option<u64>,
+    // TODO shouldn't it be an error to have > 1 record of each type?
+    pub records: Vec<MainBlockRecord>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -267,8 +280,172 @@ impl Deref for MainBlockFlags {
     }
 }
 
-impl MainBlock {
+#[derive(Debug)]
+pub struct LocatorRecord {
+    pub quick_open_record_offset: Option<u64>,
+    pub recovery_record_offset: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LocatorRecordFlags(u64);
+
+impl LocatorRecordFlags {
+    const QLIST: u64 = 0x01;
+    const RR: u64 = 0x02;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn has_quick_open_record_offset(&self) -> bool {
+        self.0 & Self::QLIST != 0
+    }
+
+    pub fn has_recovery_record_offset(&self) -> bool {
+        self.0 & Self::RR != 0
+    }
+}
+
+impl LocatorRecord {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = LocatorRecordFlags::new(flags);
+
+        let quick_open_record_offset = if flags.has_quick_open_record_offset() {
+            let (offset, _) = read_vint(reader)?;
+            if offset == 0 {
+                None
+            } else {
+                Some(offset)
+            }
+        } else {
+            None
+        };
+
+        let recovery_record_offset = if flags.has_recovery_record_offset() {
+            let (offset, _) = read_vint(reader)?;
+            if offset == 0 {
+                None
+            } else {
+                Some(offset)
+            }
+        } else {
+            None
+        };
+
+        Ok(LocatorRecord {
+            quick_open_record_offset,
+            recovery_record_offset,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct MetadataRecord {
+    pub name: Option<String>,
+    pub creation_time: Option<time::PrimitiveDateTime>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MetadataRecordFlags(u64);
+
+impl MetadataRecordFlags {
+    const NAME: u64 = 0x01;
+    const CTIME: u64 = 0x02;
+    const UNIXTIME: u64 = 0x04;
+    const UNIX_NS: u64 = 0x08;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn has_archive_name(&self) -> bool {
+        self.0 & Self::NAME != 0
+    }
+
+    pub fn has_creation_time(&self) -> bool {
+        self.0 & Self::CTIME != 0
+    }
+
+    pub fn uses_unix_time(&self) -> bool {
+        self.0 & Self::UNIXTIME != 0
+    }
+
+    pub fn is_unix_time_nanoseconds(&self) -> bool {
+        self.0 & Self::UNIX_NS != 0
+    }
+}
+
+impl MetadataRecord {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = MetadataRecordFlags::new(flags);
+
+        let name = if flags.has_archive_name() {
+            let (name_size, _) = read_vint(reader)?;
+            let name = read_vec(reader, name_size as usize)?;
+            let name: Vec<_> = name.into_iter().take_while(|n| n != &0).collect();
+            if name.is_empty() {
+                None
+            } else {
+                Some(String::from_utf8(name).unwrap())
+            }
+        } else {
+            None
+        };
+
+        let creation_time = if flags.has_creation_time() {
+            let time = if flags.uses_unix_time() {
+                if flags.is_unix_time_nanoseconds() {
+                    let time = read_u64(reader)?;
+                    let time =
+                        time::OffsetDateTime::from_unix_timestamp_nanos(time.into()).unwrap();
+                    time::PrimitiveDateTime::new(time.date(), time.time())
+                } else {
+                    let time = read_u32(reader)?;
+                    let time = time::OffsetDateTime::from_unix_timestamp(time.into()).unwrap();
+                    time::PrimitiveDateTime::new(time.date(), time.time())
+                }
+            } else {
+                if flags.is_unix_time_nanoseconds() {
+                    // TODO log warning?
+                }
+
+                todo!()
+            };
+
+            Some(time)
+        } else {
+            if flags.uses_unix_time() || flags.is_unix_time_nanoseconds() {
+                // TODO log warning?
+            }
+
+            None
+        };
+
+        Ok(MetadataRecord {
+            name,
+            creation_time,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum MainBlockRecord {
+    Locator(LocatorRecord),
+    Metadata(MetadataRecord),
+}
+
+mod main_record {
+    pub const LOCATOR: u64 = 0x0001;
+    pub const METADATA: u64 = 0x0002;
+}
+
+impl MainBlock {
+    pub(self) fn read<R: io::Read + io::Seek>(
+        reader: &mut R,
+        common_header: CommonHeader,
+    ) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
         let flags = MainBlockFlags::new(flags);
 
@@ -278,9 +455,44 @@ impl MainBlock {
             None
         };
 
+        let records = if let Some(size) = common_header.extra_area_size {
+            let end_position = reader.stream_position()? + size;
+            let mut records = vec![];
+
+            loop {
+                let record_position = reader.stream_position()?;
+
+                if record_position >= end_position {
+                    break;
+                }
+
+                let (record_size, byte_size) = read_vint(reader)?;
+                let (record_type, _) = read_vint(reader)?;
+
+                let record = match record_type {
+                    main_record::LOCATOR => MainBlockRecord::Locator(LocatorRecord::read(reader)?),
+                    main_record::METADATA => {
+                        MainBlockRecord::Metadata(MetadataRecord::read(reader)?)
+                    }
+                    _ => todo!("0x{:x} not implemented", record_type),
+                };
+
+                records.push(record);
+
+                reader.seek(io::SeekFrom::Start(
+                    record_position + record_size + byte_size as u64,
+                ))?;
+            }
+
+            records
+        } else {
+            vec![]
+        };
+
         Ok(MainBlock {
             flags,
             volume_number,
+            records,
         })
     }
 }
