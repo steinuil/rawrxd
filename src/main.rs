@@ -37,11 +37,11 @@ fn main() {
             println!("position: {}", block.position);
             println!("header_size: {}", block.header_size);
             println!("flags:");
-            println!("  is_volume: {}", block.flags.is_volume());
-            println!("  is_solid: {}", block.flags.is_solid());
-            println!("  is_locked: {}", block.flags.is_locked());
-            println!("  has_comment: {}", block.flags.has_comment());
-            println!("  is_comment_packed: {}", block.flags.is_comment_packed());
+            println!("  is_volume: {}", block.is_volume());
+            println!("  is_solid: {}", block.is_solid());
+            println!("  is_locked: {}", block.is_locked());
+            println!("  has_comment: {}", block.has_comment());
+            println!("  is_comment_packed: {}", block.is_comment_packed());
             let comment = block.read_comment(&mut f).unwrap();
             println!("{:?}", comment);
 

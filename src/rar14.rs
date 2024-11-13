@@ -62,6 +62,14 @@ impl Deref for MainBlockFlags {
     }
 }
 
+impl Deref for MainBlock {
+    type Target = MainBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
+    }
+}
+
 impl MainBlock {
     const SIGNATURE_SIZE: u64 = 4;
     const SIZE: u64 = Self::SIGNATURE_SIZE + 3;
