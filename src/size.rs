@@ -3,7 +3,9 @@ pub trait HeaderSize: Sized {
 }
 
 pub trait DataSize: Sized {
-    fn data_size(&self) -> u64;
+    fn data_size(&self) -> u64 {
+        0
+    }
 }
 
 pub trait FullSize: Sized {

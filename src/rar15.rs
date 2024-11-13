@@ -181,11 +181,7 @@ impl MainBlock {
     }
 }
 
-impl DataSize for MainBlock {
-    fn data_size(&self) -> u64 {
-        0
-    }
-}
+impl DataSize for MainBlock {}
 
 int_enum! {
     #[repr(u8)]
@@ -447,11 +443,7 @@ impl CommentBlock {
     }
 }
 
-impl DataSize for CommentBlock {
-    fn data_size(&self) -> u64 {
-        0
-    }
-}
+impl DataSize for CommentBlock {}
 
 #[derive(Debug)]
 pub struct ProtectBlock {
@@ -700,11 +692,7 @@ impl SignBlock {
     }
 }
 
-impl DataSize for SignBlock {
-    fn data_size(&self) -> u64 {
-        0
-    }
-}
+impl DataSize for SignBlock {}
 
 #[derive(Debug)]
 pub struct AvBlock {
@@ -731,11 +719,7 @@ impl AvBlock {
     }
 }
 
-impl DataSize for AvBlock {
-    fn data_size(&self) -> u64 {
-        0
-    }
-}
+impl DataSize for AvBlock {}
 
 #[derive(Debug)]
 pub struct EndArchiveBlock {
@@ -794,11 +778,7 @@ impl EndArchiveBlock {
     }
 }
 
-impl DataSize for EndArchiveBlock {
-    fn data_size(&self) -> u64 {
-        0
-    }
-}
+impl DataSize for EndArchiveBlock {}
 
 #[derive(Debug)]
 pub struct UnknownBlock {
