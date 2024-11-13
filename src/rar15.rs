@@ -263,7 +263,7 @@ pub struct FileBlock {
     pub unpacked_data_size: u64,
     pub host_os: HostOs,
     pub file_crc32: u32,
-    pub mtime: Result<time::PrimitiveDateTime, u32>,
+    pub modification_time: Result<time::PrimitiveDateTime, u32>,
     pub unpack_version: u8,
     pub method: u8,
     pub attributes: u32,
@@ -288,7 +288,7 @@ flags! {
         // TODO document this
         pub has_version = 0x0800;
 
-        /// File may contain mtime, ctime and atime info in the header.
+        /// File may contain modification time, ctime and atime info in the header.
         pub has_extended_time = 0x1000;
 
         // TODO not sure how this is used.
@@ -310,8 +310,8 @@ impl FileBlock {
         let low_unpacked_data_size = read_u32(reader)? as u64;
         let host_os = read_u8(reader)?;
         let file_crc32 = read_u32(reader)?;
-        let mtime = read_u32(reader)?;
-        let mtime = time_conv::parse_dos(mtime).map_err(|_| mtime);
+        let modification_time = read_u32(reader)?;
+        let modification_time = time_conv::parse_dos(modification_time).map_err(|_| modification_time);
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let name_size = read_u16(reader)? as usize;
@@ -348,7 +348,7 @@ impl FileBlock {
             unpacked_data_size,
             host_os: host_os.into(),
             file_crc32,
-            mtime,
+            modification_time,
             unpack_version,
             method,
             attributes,
@@ -373,7 +373,7 @@ pub struct ServiceBlock {
     pub unpacked_data_size: u64,
     pub host_os: HostOs,
     pub file_crc32: u32,
-    pub mtime: Result<time::PrimitiveDateTime, u32>,
+    pub modification_time: Result<time::PrimitiveDateTime, u32>,
     pub unpack_version: u8,
     pub method: u8,
     pub sub_flags: u32,
@@ -396,7 +396,7 @@ flags! {
         // TODO document this
         pub has_version = 0x0800;
 
-        /// Data may contain mtime, ctime and atime info in the header.
+        /// Data may contain modification time, ctime and atime info in the header.
         pub has_extended_time = 0x1000;
 
         // TODO not sure how this is used.
@@ -421,8 +421,8 @@ impl ServiceBlock {
         let low_unpacked_data_size = read_u32(reader)? as u64;
         let host_os = read_u8(reader)?;
         let file_crc32 = read_u32(reader)?;
-        let mtime = read_u32(reader)?;
-        let mtime = time_conv::parse_dos(mtime).map_err(|_| mtime);
+        let modification_time = read_u32(reader)?;
+        let modification_time = time_conv::parse_dos(modification_time).map_err(|_| modification_time);
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let name_size = read_u16(reader)? as usize;
@@ -467,7 +467,7 @@ impl ServiceBlock {
             unpacked_data_size,
             host_os: host_os.into(),
             file_crc32,
-            mtime,
+            modification_time,
             unpack_version,
             method,
             sub_flags,
