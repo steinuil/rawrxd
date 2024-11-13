@@ -4,6 +4,7 @@ mod dos_time;
 mod enum_macro;
 #[macro_use]
 mod flags;
+mod block;
 pub mod format;
 mod parse_result;
 pub mod rar14;
@@ -37,26 +38,11 @@ fn main() {
 
     match format {
         Format::Rar14 => {
-            let block = rar14::MainBlock::read(&mut f).unwrap();
-            println!("{:#?}", block);
+            let block_reader = rar14::BlockIterator::new(f, file_len).unwrap();
 
-            let comment = block.read_comment(&mut f).unwrap();
-            println!("{:?}", comment);
-
-            f.seek(SeekFrom::Start(block.position + block.full_size()))
-                .unwrap();
-
-            loop {
-                let pos = f.stream_position().unwrap();
-                if pos == file_len {
-                    break;
-                }
-
-                let block = rar14::FileBlock::read(&mut f).unwrap();
-                println!("{:#?}", block);
-
-                f.seek(SeekFrom::Start(block.position + block.full_size()))
-                    .unwrap();
+            for block in block_reader {
+                let block = block.unwrap();
+                println!("{block:#?}");
             }
         }
         Format::Rar15 => loop {
