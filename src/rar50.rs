@@ -1,4 +1,4 @@
-use std::{io, ops::Deref};
+use std::io;
 
 use crate::{
     read::*,
@@ -50,63 +50,28 @@ pub struct Block {
     pub kind: BlockKind,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct CommonFlags(u64);
+flags! {
+    pub struct CommonFlags(u16) {
+        /// Additional extra area is present at the end of the block header.
+        pub has_extra_area = 0x0001;
 
-impl CommonFlags {
-    const EXTRA: u64 = 0x0001;
-    const DATA: u64 = 0x0002;
-    const SKIP_IF_UNKNOWN: u64 = 0x0004;
-    const SPLIT_BEFORE: u64 = 0x0008;
-    const SPLIT_AFTER: u64 = 0x0010;
-    const CHILD: u64 = 0x0020;
-    const INHERITED: u64 = 0x0040;
+        /// Additional data area is present at the end of the block header.
+        pub has_data_area = 0x0002;
 
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
+        /// Unknown blocks with this flag must be skipped when updating an archive.
+        pub skip_if_unknown = 0x0004;
 
-    /// Additional extra area is present at the end of the block header.
-    pub fn has_extra_area(&self) -> bool {
-        self.0 & Self::EXTRA != 0
-    }
+        /// Data area of this block is continuing from the previous volume.
+        pub split_before = 0x0008;
 
-    /// Additional data area is present at the end of the block header.
-    pub fn has_data_area(&self) -> bool {
-        self.0 & Self::DATA != 0
-    }
+        /// Data area of this block is continuing in the next volume.
+        pub split_after = 0x0010;
 
-    /// Unknown blocks with this flag must be skipped when updating an archive.
-    pub fn skip_if_unknown(&self) -> bool {
-        self.0 & Self::SKIP_IF_UNKNOWN != 0
-    }
+        /// Block depends on preceding file block.
+        pub is_child = 0x0020;
 
-    /// Data area of this block is continuing from the previous volume.
-    pub fn split_before(&self) -> bool {
-        self.0 & Self::SPLIT_BEFORE != 0
-    }
-
-    /// Data area of this block is continuing in the next volume.
-    pub fn split_after(&self) -> bool {
-        self.0 & Self::SPLIT_AFTER != 0
-    }
-
-    /// Block depends on preceding file block.
-    pub fn is_child(&self) -> bool {
-        self.0 & Self::CHILD != 0
-    }
-
-    /// Preserve a child block if host is modified.
-    pub fn is_inherited(&self) -> bool {
-        self.0 & Self::INHERITED != 0
-    }
-}
-
-impl Deref for CommonFlags {
-    type Target = u64;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        /// Preserve a child block if host is modified.
+        pub is_inherited = 0x0040;
     }
 }
 
@@ -147,7 +112,7 @@ impl Block {
         let (header_type, _) = read_vint(reader)?;
 
         let (flags, _) = read_vint(reader)?;
-        let flags = CommonFlags::new(flags);
+        let flags = CommonFlags::new(flags as u16);
 
         let extra_area_size = if flags.has_extra_area() {
             Some(read_vint(reader)?.0)
@@ -208,27 +173,9 @@ pub struct CryptBlock {
     pub check_value: Option<[u8; 12]>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct CryptBlockFlags(u64);
-
-impl CryptBlockFlags {
-    const PSWCHECK: u64 = 0x0001;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    /// Password check data is present.
-    pub fn has_password_check(&self) -> bool {
-        self.0 & Self::PSWCHECK != 0
-    }
-}
-
-impl Deref for CryptBlockFlags {
-    type Target = u64;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+flags! {
+    pub struct CryptBlockFlags(u16) {
+        pub has_password_check = 0x0001;
     }
 }
 
@@ -241,11 +188,12 @@ pub enum EncryptionVersion {
 impl CryptBlock {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (encryption_version, _) = read_vint(reader)?;
+
         let (flags, _) = read_vint(reader)?;
+        let flags = CryptBlockFlags::new(flags as u16);
+
         let kdf_count = read_u8(reader)?;
         let salt = read_const_bytes(reader)?;
-
-        let flags = CryptBlockFlags::new(flags);
 
         let check_value = if flags.has_password_check() {
             Some(read_const_bytes(reader)?)
@@ -271,46 +219,23 @@ pub struct MainBlock {
     pub records: Vec<MainBlockRecord>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct MainBlockFlags(u64);
+flags! {
+    pub struct MainBlockFlags(u16) {
+        /// Archive is part of a multi-volume archive.
+        pub is_volume = 0x0001;
 
-impl MainBlockFlags {
-    const VOLUME: u64 = 0x0001;
-    const VOLUME_NUMBER: u64 = 0x0002;
-    const SOLID: u64 = 0x0004;
-    const PROTECT: u64 = 0x0008;
-    const LOCK: u64 = 0x0010;
+        /// Volume number field is present. True for all volumes except first.
+        pub has_volume_number = 0x0002;
 
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
+        /// https://en.wikipedia.org/wiki/Solid_compression
+        pub is_solid = 0x0004;
 
-    pub fn is_volume(&self) -> bool {
-        self.0 & Self::VOLUME != 0
-    }
+        /// Contains a recovery record.
+        // TODO document this better
+        pub has_recovery_record = 0x0008;
 
-    pub fn has_volume_number(&self) -> bool {
-        self.0 & Self::VOLUME_NUMBER != 0
-    }
-
-    pub fn is_solid(&self) -> bool {
-        self.0 & Self::SOLID != 0
-    }
-
-    pub fn has_recovery_record(&self) -> bool {
-        self.0 & Self::PROTECT != 0
-    }
-
-    pub fn is_locked(&self) -> bool {
-        self.0 & Self::LOCK != 0
-    }
-}
-
-impl Deref for MainBlockFlags {
-    type Target = u64;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        /// WinRAR will not modify this archive.
+        pub is_locked = 0x0010;
     }
 }
 
@@ -320,30 +245,17 @@ pub struct LocatorRecord {
     pub recovery_record_offset: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct LocatorRecordFlags(u64);
-
-impl LocatorRecordFlags {
-    const QLIST: u64 = 0x01;
-    const RR: u64 = 0x02;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn has_quick_open_record_offset(&self) -> bool {
-        self.0 & Self::QLIST != 0
-    }
-
-    pub fn has_recovery_record_offset(&self) -> bool {
-        self.0 & Self::RR != 0
+flags! {
+    struct LocatorRecordFlags(u8) {
+        pub has_quick_open_record_offset = 0x01;
+        pub has_recovery_record_offset = 0x02;
     }
 }
 
 impl LocatorRecord {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
-        let flags = LocatorRecordFlags::new(flags);
+        let flags = LocatorRecordFlags::new(flags as u8);
 
         let quick_open_record_offset = if flags.has_quick_open_record_offset() {
             let (offset, _) = read_vint(reader)?;
@@ -380,40 +292,19 @@ pub struct MetadataRecord {
     pub creation_time: Option<time::PrimitiveDateTime>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct MetadataRecordFlags(u64);
-
-impl MetadataRecordFlags {
-    const NAME: u64 = 0x01;
-    const CTIME: u64 = 0x02;
-    const UNIXTIME: u64 = 0x04;
-    const UNIX_NS: u64 = 0x08;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn has_archive_name(&self) -> bool {
-        self.0 & Self::NAME != 0
-    }
-
-    pub fn has_creation_time(&self) -> bool {
-        self.0 & Self::CTIME != 0
-    }
-
-    pub fn uses_unix_time(&self) -> bool {
-        self.0 & Self::UNIXTIME != 0
-    }
-
-    pub fn is_unix_time_nanoseconds(&self) -> bool {
-        self.0 & Self::UNIX_NS != 0
+flags! {
+    struct MetadataRecordFlags(u8) {
+        pub has_archive_name = 0x01;
+        pub has_creation_time = 0x02;
+        pub uses_unix_time = 0x04;
+        pub is_unix_time_nanoseconds = 0x08;
     }
 }
 
 impl MetadataRecord {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
-        let flags = MetadataRecordFlags::new(flags);
+        let flags = MetadataRecordFlags::new(flags as u8);
 
         let name = if flags.has_archive_name() {
             let (name_size, _) = read_vint(reader)?;
@@ -482,7 +373,7 @@ impl MainBlock {
         common_header: &CommonHeader,
     ) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
-        let flags = MainBlockFlags::new(flags);
+        let flags = MainBlockFlags::new(flags as u16);
 
         let volume_number = if flags.has_volume_number() {
             Some(read_vint(reader)?.0)
@@ -519,41 +410,12 @@ pub struct FileBlock {
     pub records: Vec<FileBlockRecord>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct FileBlockFlags(u64);
-
-impl FileBlockFlags {
-    const DIRECTORY: u64 = 0x0001;
-    const UTIME: u64 = 0x0002;
-    const CRC32: u64 = 0x0004;
-    const UNPUNKNOWN: u64 = 0x0008;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn is_directory(&self) -> bool {
-        self.0 & Self::DIRECTORY != 0
-    }
-
-    pub fn has_mtime(&self) -> bool {
-        self.0 & Self::UTIME != 0
-    }
-
-    pub fn has_crc32(&self) -> bool {
-        self.0 & Self::CRC32 != 0
-    }
-
-    pub fn unknown_unpacked_size(&self) -> bool {
-        self.0 & Self::UNPUNKNOWN != 0
-    }
-}
-
-impl Deref for FileBlockFlags {
-    type Target = u64;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+flags! {
+    pub struct FileBlockFlags(u16) {
+        pub is_directory = 0x0001;
+        pub has_mtime = 0x0002;
+        pub has_crc32 = 0x0004;
+        pub unknown_unpacked_size = 0x0008;
     }
 }
 
@@ -600,7 +462,7 @@ impl FileBlock {
         common_header: &CommonHeader,
     ) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
-        let flags = FileBlockFlags::new(flags);
+        let flags = FileBlockFlags::new(flags as u16);
 
         // TODO should signal that this value might be garbage if the block
         // has the UNPUNKNOWN flag set
@@ -668,43 +530,18 @@ pub struct ServiceBlock {
     pub name: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ServiceBlockFlags(u64);
-
-impl ServiceBlockFlags {
-    const UTIME: u64 = 0x0002;
-    const CRC32: u64 = 0x0004;
-    const UNPUNKNOWN: u64 = 0x0008;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn has_mtime(&self) -> bool {
-        self.0 & Self::UTIME != 0
-    }
-
-    pub fn has_crc32(&self) -> bool {
-        self.0 & Self::CRC32 != 0
-    }
-
-    pub fn unknown_unpacked_size(&self) -> bool {
-        self.0 & Self::UNPUNKNOWN != 0
-    }
-}
-
-impl Deref for ServiceBlockFlags {
-    type Target = u64;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+flags! {
+    pub struct ServiceBlockFlags(u16) {
+        pub has_mtime = 0x0002;
+        pub has_crc32 = 0x0004;
+        pub unknown_unpacked_size = 0x0008;
     }
 }
 
 impl ServiceBlock {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
-        let flags = ServiceBlockFlags::new(flags);
+        let flags = ServiceBlockFlags::new(flags as u16);
 
         // TODO should signal that this value might be garbage if the block
         // has the UNPUNKNOWN flag set
@@ -758,30 +595,17 @@ pub struct FileEncryptionRecord {
     pub check_value: Option<[u8; 12]>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct FileEncryptionRecordFlags(u64);
-
-impl FileEncryptionRecordFlags {
-    const PSWCHECK: u64 = 0x01;
-    const HASHMAC: u64 = 0x02;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn has_password_check(&self) -> bool {
-        self.0 & Self::PSWCHECK != 0
-    }
-
-    pub fn use_mac_checksum(&self) -> bool {
-        self.0 & Self::HASHMAC != 0
+flags! {
+    pub struct FileEncryptionRecordFlags(u8) {
+        pub has_password_check = 0x01;
+        pub uses_mac_checksum = 0x02;
     }
 }
 
 impl FileEncryptionRecord {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
-        let flags = FileEncryptionRecordFlags::new(flags);
+        let flags = FileEncryptionRecordFlags::new(flags as u8);
 
         let kdf_count = read_u8(reader)?;
         let salt = read_const_bytes(reader)?;
@@ -837,38 +661,13 @@ pub struct FileTimeRecord {
     pub access_time: Option<time::PrimitiveDateTime>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct FileTimeRecordFlags(u64);
-
-impl FileTimeRecordFlags {
-    const UNIXTIME: u64 = 0x01;
-    const MTIME: u64 = 0x02;
-    const CTIME: u64 = 0x04;
-    const ATIME: u64 = 0x08;
-    const UNIX_NS: u64 = 0x10;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn uses_unix_time(&self) -> bool {
-        self.0 & Self::UNIXTIME != 0
-    }
-
-    pub fn has_modification_time(&self) -> bool {
-        self.0 & Self::MTIME != 0
-    }
-
-    pub fn has_creation_time(&self) -> bool {
-        self.0 & Self::CTIME != 0
-    }
-
-    pub fn has_access_time(&self) -> bool {
-        self.0 & Self::ATIME != 0
-    }
-
-    pub fn has_unix_time_nanoseconds(&self) -> bool {
-        self.0 & Self::UNIX_NS != 0
+flags! {
+    struct FileTimeRecordFlags(u8) {
+        pub uses_unix_time = 0x01;
+        pub has_modification_time = 0x02;
+        pub has_creation_time = 0x04;
+        pub has_access_time = 0x08;
+        pub has_unix_time_nanoseconds = 0x10;
     }
 }
 
@@ -968,40 +767,19 @@ pub struct UnixOwnerRecord {
     pub group_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct UnixOwnerRecordFlags(u64);
-
-impl UnixOwnerRecordFlags {
-    const UNAME: u64 = 0x01;
-    const GNAME: u64 = 0x02;
-    const NUMUID: u64 = 0x04;
-    const NUMGID: u64 = 0x08;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn has_user_name(&self) -> bool {
-        self.0 & Self::UNAME != 0
-    }
-
-    pub fn has_group_name(&self) -> bool {
-        self.0 & Self::GNAME != 0
-    }
-
-    pub fn has_user_id(&self) -> bool {
-        self.0 & Self::NUMUID != 0
-    }
-
-    pub fn has_group_id(&self) -> bool {
-        self.0 & Self::NUMGID != 0
+flags! {
+    struct UnixOwnerRecordFlags(u8) {
+        pub has_user_name = 0x01;
+        pub has_group_name = 0x02;
+        pub has_user_id = 0x04;
+        pub has_group_id = 0x08;
     }
 }
 
 impl UnixOwnerRecord {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
-        let flags = UnixOwnerRecordFlags::new(flags);
+        let flags = UnixOwnerRecordFlags::new(flags as u8);
 
         let user_name = if flags.has_user_name() {
             let (size, _) = read_vint(reader)?;
@@ -1045,33 +823,16 @@ pub struct EndArchiveBlock {
     pub flags: EndArchiveBlockFlags,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct EndArchiveBlockFlags(u64);
-
-impl EndArchiveBlockFlags {
-    const NEXTVOLUME: u64 = 0x0001;
-
-    pub fn new(flags: u64) -> Self {
-        Self(flags)
-    }
-
-    pub fn has_next_volume(&self) -> bool {
-        self.0 & Self::NEXTVOLUME != 0
-    }
-}
-
-impl Deref for EndArchiveBlockFlags {
-    type Target = u64;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+flags! {
+    pub struct EndArchiveBlockFlags(u16) {
+        pub has_next_volume = 0x0001;
     }
 }
 
 impl EndArchiveBlock {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
-        let flags = EndArchiveBlockFlags::new(flags);
+        let flags = EndArchiveBlockFlags::new(flags as u16);
 
         Ok(EndArchiveBlock { flags })
     }

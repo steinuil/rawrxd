@@ -20,93 +20,44 @@ pub struct MainBlock {
     pub encrypt_version: Option<u8>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct MainBlockFlags(u16);
+flags! {
+    pub struct MainBlockFlags(u16) {
+        /// Archive is part of a multi-volume archive.
+        pub is_volume = 0x0001;
 
-impl MainBlockFlags {
-    const VOLUME: u16 = 0x0001;
-    const COMMENT: u16 = 0x0002;
-    const LOCK: u16 = 0x0004;
-    const SOLID: u16 = 0x0008;
-    const NEWNUMBERING: u16 = 0x0010;
-    const AV: u16 = 0x0020;
-    const PROTECT: u16 = 0x0040;
-    const PASSWORD: u16 = 0x0080;
-    const FIRSTVOLUME: u16 = 0x0100;
-    const ENCRYPTVER: u16 = 0x0200;
+        /// Main header contains a comment.
+        /// This called is an old-style (up to RAR2.9) comment.
+        pub has_comment = 0x0002;
 
-    pub fn new(flags: u16) -> Self {
-        Self(flags)
-    }
+        /// WinRAR will not modify this archive.
+        pub is_locked = 0x0004;
 
-    /// A multi-volume archive is an archive split into multiple files.
-    pub fn is_volume(&self) -> bool {
-        self.0 & Self::VOLUME != 0
-    }
+        /// https://en.wikipedia.org/wiki/Solid_compression
+        pub is_solid = 0x0008;
 
-    /// https://en.wikipedia.org/wiki/Solid_compression
-    pub fn is_solid(&self) -> bool {
-        self.0 & Self::SOLID != 0
-    }
+        /// In a multi-volume archive, indicates that the filenames end with
+        /// {.part01.rar, .part02.rar, ..., .partNN.rar} rather than with
+        /// {.rar, .r00, .r01, ... .rNN}
+        pub uses_new_numbering = 0x0010;
 
-    /// A locked archive is just an archive with this flag set,
-    /// and it only serves to prevent WinRAR from modifying it.
-    pub fn is_locked(&self) -> bool {
-        self.0 & Self::LOCK != 0
-    }
+        /// The archive includes some additional metadata like archive name,
+        /// creation date and owner of the WinRAR license.
+        pub has_authenticity_verification = 0x0020;
 
-    /// Contains an old-style (up to RAR 2.9) comment
-    pub fn has_comment(&self) -> bool {
-        self.0 & Self::COMMENT != 0
-    }
+        /// Contains a recovery record.
+        // TODO document this better
+        pub has_recovery_record = 0x0040;
 
-    // TODO document this
-    pub fn is_protected(&self) -> bool {
-        self.0 & Self::PROTECT != 0
-    }
+        /// Archive is password-encrypted.
+        pub has_password = 0x0080;
 
-    /// Block headers are encrypted
-    pub fn is_encrypted(&self) -> bool {
-        self.0 & Self::PASSWORD != 0
-    }
+        /// Archive is the first volume in a multi-volume archive.
+        /// Set only by RAR 3.0+
+        pub is_first_volume = 0x0100;
 
-    /// Set only by RAR 3.0+
-    pub fn is_first_volume(&self) -> bool {
-        self.0 & Self::FIRSTVOLUME != 0
-    }
-
-    /// In multi-volume archives, old numbering looks like this:
-    ///
-    /// - archive.rar
-    /// - archive.r00
-    /// - archive.r01
-    /// - ...
-    ///
-    /// With the new numbering scheme, all volumes use the .rar extension.
-    ///
-    /// - archive.part01.rar
-    /// - archive.part02.rar
-    /// - ...
-    pub fn uses_new_numbering(&self) -> bool {
-        self.0 & Self::NEWNUMBERING != 0
-    }
-
-    // TODO document this
-    pub fn has_authenticity_verification(&self) -> bool {
-        self.0 & Self::AV != 0
-    }
-
-    /// Indicates whether encryption is present in the archive
-    pub fn has_encrypt_version(&self) -> bool {
-        self.0 & Self::ENCRYPTVER != 0
-    }
-}
-
-impl Deref for MainBlockFlags {
-    type Target = u16;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        /// Indicates whether encryption is present in the archive
+        // TODO what does that mean?
+        pub has_encrypt_version = 0x200;
     }
 }
 
@@ -181,58 +132,30 @@ pub struct FileBlock {
     pub salt: Option<[u8; Self::SALT_SIZE]>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct FileBlockFlags(u16);
+flags! {
+    pub struct FileBlockFlags(u16) {
+        /// File block contains a comment in the header.
+        pub has_comment = 0x0002;
 
-impl FileBlockFlags {
-    const COMMENT: u16 = 0x0002;
-    const LARGE: u16 = 0x0100;
-    const UNICODE: u16 = 0x0200;
-    const SALT: u16 = 0x0400;
-    const VERSION: u16 = 0x0800;
-    const EXTTIME: u16 = 0x1000;
-    const EXTAREA: u16 = 0x2000;
+        /// The file size is larger than u32::MAX.
+        pub has_large_size = 0x0100;
 
-    pub fn new(flags: u16) -> Self {
-        Self(flags)
-    }
+        /// Filename is in UTF-8 format.
+        pub is_filename_unicode = 0x0200;
 
-    pub fn has_large_size(&self) -> bool {
-        self.0 & Self::LARGE != 0
-    }
+        /// File is encrypted with salt.
+        pub has_salt = 0x0400;
 
-    pub fn has_unicode_filename(&self) -> bool {
-        self.0 & Self::UNICODE != 0
-    }
+        // TODO document this
+        pub has_version = 0x0800;
 
-    pub fn has_salt(&self) -> bool {
-        self.0 & Self::SALT != 0
-    }
+        /// File may contain mtime, ctime and atime info in the header.
+        pub has_extended_time = 0x1000;
 
-    pub fn has_extended_time(&self) -> bool {
-        self.0 & Self::EXTTIME != 0
-    }
-
-    pub fn has_comment(&self) -> bool {
-        self.0 & Self::COMMENT != 0
-    }
-
-    // TODO document this
-    pub fn parse_version(&self) -> bool {
-        self.0 & Self::VERSION != 0
-    }
-
-    // TODO not sure this is used
-    pub fn has_extended_area(&self) -> bool {
-        self.0 & Self::EXTAREA != 0
-    }
-}
-
-impl Deref for FileBlockFlags {
-    type Target = u16;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        // TODO not sure how this is used.
+        // Seems to indicate that there's an extra area in the header
+        // like the one in RAR5 blocks?
+        pub has_extra_area = 0x2000;
     }
 }
 
@@ -268,7 +191,7 @@ impl BlockRead for FileBlock {
 
         let file_name = read_vec(reader, name_size)?;
 
-        if flags.has_unicode_filename() {
+        if flags.is_filename_unicode() {
             // TODO decode the filename to unicode?
         }
 
@@ -318,53 +241,27 @@ pub struct ServiceBlock {
     pub salt: Option<[u8; 8]>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ServiceBlockFlags(u16);
+flags! {
+    pub struct ServiceBlockFlags(u16) {
+        /// Service block contains a comment in the header.
+        pub has_comment = 0x0002;
 
-impl ServiceBlockFlags {
-    const COMMENT: u16 = 0x0002;
-    const LARGE: u16 = 0x0100;
-    const SALT: u16 = 0x0400;
-    const VERSION: u16 = 0x0800;
-    const EXTTIME: u16 = 0x1000;
-    const EXTAREA: u16 = 0x2000;
+        /// The file size is larger than u32::MAX.
+        pub has_large_size = 0x0100;
 
-    pub fn new(flags: u16) -> Self {
-        Self(flags)
-    }
+        /// Data is encrypted with salt.
+        pub has_salt = 0x0400;
 
-    pub fn has_large_size(&self) -> bool {
-        self.0 & Self::LARGE != 0
-    }
+        // TODO document this
+        pub has_version = 0x0800;
 
-    pub fn has_salt(&self) -> bool {
-        self.0 & Self::SALT != 0
-    }
+        /// Data may contain mtime, ctime and atime info in the header.
+        pub has_extended_time = 0x1000;
 
-    pub fn has_extended_time(&self) -> bool {
-        self.0 & Self::EXTTIME != 0
-    }
-
-    pub fn has_comment(&self) -> bool {
-        self.0 & Self::COMMENT != 0
-    }
-
-    // TODO document this
-    pub fn parse_version(&self) -> bool {
-        self.0 & Self::VERSION != 0
-    }
-
-    // TODO not sure this is used
-    pub fn has_extended_area(&self) -> bool {
-        self.0 & Self::EXTAREA != 0
-    }
-}
-
-impl Deref for ServiceBlockFlags {
-    type Target = u16;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        // TODO not sure how this is used.
+        // Seems to indicate that there's an extra area in the header
+        // like the one in RAR5 blocks?
+        pub has_extra_area = 0x2000;
     }
 }
 
@@ -780,36 +677,19 @@ pub struct EndArchiveBlock {
     pub volume_number: Option<u16>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct EndArchiveBlockFlags(u16);
+flags! {
+    pub struct EndArchiveBlockFlags(u16) {
+        /// Archive is part of a volume and continues in the next volume.
+        pub has_next_volume = 0x0001;
 
-impl EndArchiveBlockFlags {
-    const NEXT_VOLUME: u16 = 0x0001;
-    const DATACRC: u16 = 0x0002;
-    const REVSPACE: u16 = 0x0004;
-    const VOLNUMBER: u16 = 0x0008;
+        /// Store CRC32 of RAR archive (only used in volumes).
+        pub has_crc32 = 0x0002;
 
-    pub fn new(flags: u16) -> Self {
-        Self(flags)
-    }
+        /// Reserve space for end of REV file 7 byte record.
+        pub reserve_space = 0x0004;
 
-    pub fn has_next_volume(&self) -> bool {
-        self.0 & Self::NEXT_VOLUME != 0
-    }
-
-    /// Store CRC32 of RAR archive (now is used only in volumes).
-    pub fn has_crc32(&self) -> bool {
-        self.0 & Self::DATACRC != 0
-    }
-
-    /// Reserve space for end of REV file 7 byte record.
-    pub fn reserve_space(&self) -> bool {
-        self.0 & Self::REVSPACE != 0
-    }
-
-    /// Store a number of current volume.
-    pub fn has_volume_number(&self) -> bool {
-        self.0 & Self::VOLNUMBER != 0
+        /// Store the number of the current volume.
+        pub has_volume_number = 0x0008;
     }
 }
 
@@ -858,6 +738,17 @@ pub struct UnknownBlock {
     pub tag: u8,
     pub flags: UnknownBlockFlags,
     pub data_size: Option<u32>,
+}
+
+flags! {
+    pub struct UnknownBlockFlags_(u16) {
+        /// Unknown blocks with this flag must be skipped when updating
+        /// an archive.
+        pub skip_if_unknown = 0x4000;
+
+        /// Data area is present in the end of block header.
+        pub contains_data = 0x8000;
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -2,7 +2,7 @@ macro_rules! flags {
     {
         $struct_vis:vis struct $struct_name:ident($type:ty) {
             $(
-                $(#[doc = $doc:expr])?
+                $(#[doc = $doc:expr])*
                 $field_vis:vis $field_name:ident = $field_value:expr;
             )*
         }
@@ -16,7 +16,7 @@ macro_rules! flags {
             }
 
             $(
-                $(#[doc = $doc])?
+                $(#[doc = $doc])*
                 $field_vis fn $field_name(&self) -> bool {
                     self.0 & $field_value != 0
                 }
