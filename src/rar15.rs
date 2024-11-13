@@ -263,7 +263,7 @@ pub struct FileBlock {
     pub unpacked_data_size: u64,
     pub host_os: HostOs,
     pub file_crc32: u32,
-    pub mtime: time::PrimitiveDateTime,
+    pub mtime: Result<time::PrimitiveDateTime, u32>,
     pub unpack_version: u8,
     pub method: u8,
     pub attributes: u32,
@@ -345,9 +345,9 @@ impl FileBlock {
         Ok(FileBlock {
             packed_data_size,
             unpacked_data_size,
-            host_os: host_os.try_into().unwrap(),
+            host_os: host_os.into(),
             file_crc32,
-            mtime: dos_time::parse(mtime),
+            mtime: dos_time::parse(mtime).map_err(|_| mtime),
             unpack_version,
             method,
             attributes,
@@ -367,11 +367,12 @@ impl DataSize for FileBlock {
 // found in SubBlock, so we should parse them accordingly.
 #[derive(Debug)]
 pub struct ServiceBlock {
+    pub flags: ServiceBlockFlags,
     pub packed_data_size: u64,
     pub unpacked_data_size: u64,
     pub host_os: HostOs,
     pub file_crc32: u32,
-    pub mtime: time::PrimitiveDateTime,
+    pub mtime: Result<time::PrimitiveDateTime, u32>,
     pub unpack_version: u8,
     pub method: u8,
     pub sub_flags: u32,
@@ -459,11 +460,12 @@ impl ServiceBlock {
         // TODO parse exttime
 
         Ok(ServiceBlock {
+            flags,
             packed_data_size,
             unpacked_data_size,
-            host_os: host_os.try_into().unwrap(),
+            host_os: host_os.into(),
             file_crc32,
-            mtime: dos_time::parse(mtime),
+            mtime: dos_time::parse(mtime).map_err(|_| mtime),
             unpack_version,
             method,
             sub_flags,
@@ -685,37 +687,35 @@ impl SubBlock {
         let sub_type = read_u16(reader)?;
         let level = read_u8(reader)?;
 
-        let sub_block = match sub_type.try_into() {
-            Ok(t) => match t {
-                SubBlockType::UnixOwner => {
-                    let sub_block = UnixOwnerSubBlock::read(reader)?;
-                    Sub::UnixOwner(sub_block)
-                }
-                SubBlockType::MacOsInfo => {
-                    let sub_block = MacOsInfoSubBlock::read(reader)?;
-                    Sub::MacOsInfo(sub_block)
-                }
-                SubBlockType::Os2ExtendedAttributes => {
-                    let sub_block =
-                        ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::Os2)?;
-                    Sub::ExtendedAttributes(sub_block)
-                }
-                SubBlockType::BeOsExtendedAttributes => {
-                    let sub_block =
-                        ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::BeOs)?;
-                    Sub::ExtendedAttributes(sub_block)
-                }
-                SubBlockType::NtfsAcl => {
-                    let sub_block =
-                        ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::Ntfs)?;
-                    Sub::ExtendedAttributes(sub_block)
-                }
-                SubBlockType::NtfsStream => {
-                    let sub_block = NtfsStreamSubBlock::read(reader)?;
-                    Sub::NtfsStream(sub_block)
-                }
-            },
-            Err(_) => Sub::Unknown(sub_type),
+        let sub_block = match sub_type.into() {
+            SubBlockType::UnixOwner => {
+                let sub_block = UnixOwnerSubBlock::read(reader)?;
+                Sub::UnixOwner(sub_block)
+            }
+            SubBlockType::MacOsInfo => {
+                let sub_block = MacOsInfoSubBlock::read(reader)?;
+                Sub::MacOsInfo(sub_block)
+            }
+            SubBlockType::Os2ExtendedAttributes => {
+                let sub_block =
+                    ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::Os2)?;
+                Sub::ExtendedAttributes(sub_block)
+            }
+            SubBlockType::BeOsExtendedAttributes => {
+                let sub_block =
+                    ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::BeOs)?;
+                Sub::ExtendedAttributes(sub_block)
+            }
+            SubBlockType::NtfsAcl => {
+                let sub_block =
+                    ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::Ntfs)?;
+                Sub::ExtendedAttributes(sub_block)
+            }
+            SubBlockType::NtfsStream => {
+                let sub_block = NtfsStreamSubBlock::read(reader)?;
+                Sub::NtfsStream(sub_block)
+            }
+            SubBlockType::Unknown(_) => Sub::Unknown(sub_type),
         };
 
         Ok(SubBlock {

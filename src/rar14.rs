@@ -207,7 +207,7 @@ pub struct FileBlock {
     pub packed_data_size: u32,
     pub unpacked_data_size: u32,
     pub crc16: u16,
-    pub modification_time: time::PrimitiveDateTime,
+    pub modification_time: Result<time::PrimitiveDateTime, u32>,
     pub attributes: u8,
     pub unpack_version: u8,
     pub method: u8,
@@ -237,7 +237,7 @@ impl FileBlock {
         let header_size = read_u16(reader)?;
 
         let modification_time = read_u32(reader)?;
-        let modification_time = dos_time::parse(modification_time);
+        let modification_time = dos_time::parse(modification_time).map_err(|_| modification_time);
 
         let attributes = read_u8(reader)?;
 

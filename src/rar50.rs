@@ -215,7 +215,7 @@ int_enum! {
 impl CryptBlock {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (encryption_version, _) = read_vint(reader)?;
-        let encryption_version = (encryption_version as u8).try_into().unwrap();
+        let encryption_version = (encryption_version as u8).into();
 
         let (flags, _) = read_vint(reader)?;
         let flags = CryptBlockFlags::new(flags as u16);
@@ -317,7 +317,7 @@ impl LocatorRecord {
 #[derive(Debug)]
 pub struct MetadataRecord {
     pub name: Option<String>,
-    pub creation_time: Option<time::PrimitiveDateTime>,
+    pub creation_time: Option<Result<time::OffsetDateTime, u64>>,
 }
 
 flags! {
@@ -351,13 +351,11 @@ impl MetadataRecord {
             let time = if flags.uses_unix_time() {
                 if flags.is_unix_time_nanoseconds() {
                     let time = read_u64(reader)?;
-                    let time =
-                        time::OffsetDateTime::from_unix_timestamp_nanos(time.into()).unwrap();
-                    time::PrimitiveDateTime::new(time.date(), time.time())
+
+                    time::OffsetDateTime::from_unix_timestamp_nanos(time.into()).map_err(|_| time)
                 } else {
                     let time = read_u32(reader)?;
-                    let time = time::OffsetDateTime::from_unix_timestamp(time.into()).unwrap();
-                    time::PrimitiveDateTime::new(time.date(), time.time())
+                    time::OffsetDateTime::from_unix_timestamp(time.into()).map_err(|_| time as u64)
                 }
             } else {
                 if flags.is_unix_time_nanoseconds() {
@@ -428,7 +426,7 @@ pub struct FileBlock {
     pub flags: FileBlockFlags,
     pub unpacked_size: u64,
     pub attributes: u64,
-    pub mtime: Option<time::PrimitiveDateTime>,
+    pub mtime: Option<Result<time::OffsetDateTime, u32>>,
     pub data_crc32: Option<u32>,
     pub compression_info: u64,
     pub host_os: HostOs,
@@ -487,9 +485,7 @@ impl FileBlock {
 
         let mtime = if flags.has_mtime() {
             let mtime = read_u32(reader)?;
-            let mtime = time::OffsetDateTime::from_unix_timestamp(mtime.into()).unwrap();
-            let mtime = time::PrimitiveDateTime::new(mtime.date(), mtime.time());
-            Some(mtime)
+            Some(time::OffsetDateTime::from_unix_timestamp(mtime.into()).map_err(|_| mtime))
         } else {
             None
         };
@@ -527,7 +523,7 @@ impl FileBlock {
             mtime,
             data_crc32,
             compression_info,
-            host_os: (host_os as u8).try_into().unwrap(),
+            host_os: (host_os as u8).into(),
             name,
             records,
         })
@@ -538,7 +534,7 @@ impl FileBlock {
 pub struct ServiceBlock {
     pub flags: ServiceBlockFlags,
     pub unpacked_size: u64,
-    pub mtime: Option<time::PrimitiveDateTime>,
+    pub mtime: Option<Result<time::OffsetDateTime, u32>>,
     pub data_crc32: Option<u32>,
     pub compression_info: u64,
     pub host_os: HostOs,
@@ -569,9 +565,7 @@ impl ServiceBlock {
 
         let mtime = if flags.has_mtime() {
             let mtime = read_u32(reader)?;
-            let mtime = time::OffsetDateTime::from_unix_timestamp(mtime.into()).unwrap();
-            let mtime = time::PrimitiveDateTime::new(mtime.date(), mtime.time());
-            Some(mtime)
+            Some(time::OffsetDateTime::from_unix_timestamp(mtime.into()).map_err(|_| mtime))
         } else {
             None
         };
@@ -595,7 +589,7 @@ impl ServiceBlock {
             mtime,
             data_crc32,
             compression_info,
-            host_os: (host_os as u8).try_into().unwrap(),
+            host_os: (host_os as u8).into(),
             name,
         })
     }
@@ -671,9 +665,9 @@ impl FileHashRecord {
 
 #[derive(Debug)]
 pub struct FileTimeRecord {
-    pub modification_time: Option<time::PrimitiveDateTime>,
-    pub creation_time: Option<time::PrimitiveDateTime>,
-    pub access_time: Option<time::PrimitiveDateTime>,
+    pub modification_time: Option<Result<time::OffsetDateTime, u64>>,
+    pub creation_time: Option<Result<time::OffsetDateTime, u64>>,
+    pub access_time: Option<Result<time::OffsetDateTime, u64>>,
 }
 
 flags! {
@@ -743,7 +737,7 @@ impl FileSystemRedirectionRecordFlags {
 impl FileSystemRedirectionRecord {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (redirection_type, _) = read_vint(reader)?;
-        let redirection_type = (redirection_type as u16).try_into().unwrap();
+        let redirection_type = (redirection_type as u16).into();
 
         let (flags, _) = read_vint(reader)?;
         let flags = FileSystemRedirectionRecordFlags::new(flags);
