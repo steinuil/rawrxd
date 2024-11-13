@@ -5,6 +5,40 @@ use crate::{
     size::{DataSize, HeaderSize},
 };
 
+fn read_records<R: io::Read + io::Seek, T, F: Fn(&mut R, u64) -> io::Result<T>>(
+    reader: &mut R,
+    common_header: &CommonHeader,
+    parse: F,
+) -> io::Result<Vec<T>> {
+    if let Some(size) = common_header.extra_area_size {
+        let end_position = reader.stream_position()? + size;
+        let mut records = vec![];
+
+        loop {
+            let record_position = reader.stream_position()?;
+
+            if record_position >= end_position {
+                break;
+            }
+
+            let (record_size, byte_size) = read_vint(reader)?;
+            let (record_type, _) = read_vint(reader)?;
+
+            let record = parse(reader, record_type)?;
+
+            records.push(record);
+
+            reader.seek(io::SeekFrom::Start(
+                record_position + record_size + byte_size as u64,
+            ))?;
+        }
+
+        Ok(records)
+    } else {
+        Ok(vec![])
+    }
+}
+
 #[derive(Debug)]
 pub struct Block {
     pub position: u64,
@@ -133,7 +167,7 @@ impl Block {
         };
 
         let kind = match header_type {
-            block::MAIN => BlockKind::Main(MainBlock::read(reader, common_header)?),
+            block::MAIN => BlockKind::Main(MainBlock::read(reader, &common_header)?),
             block::FILE => BlockKind::File(FileBlock::read(reader)?),
             block::SERVICE => BlockKind::Service(ServiceBlock::read(reader)?),
             block::CRYPT => BlockKind::Crypt(CryptBlock::read(reader)?),
@@ -445,7 +479,7 @@ mod main_record {
 impl MainBlock {
     pub(self) fn read<R: io::Read + io::Seek>(
         reader: &mut R,
-        common_header: CommonHeader,
+        common_header: &CommonHeader,
     ) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
         let flags = MainBlockFlags::new(flags);
@@ -456,39 +490,13 @@ impl MainBlock {
             None
         };
 
-        let records = if let Some(size) = common_header.extra_area_size {
-            let end_position = reader.stream_position()? + size;
-            let mut records = vec![];
-
-            loop {
-                let record_position = reader.stream_position()?;
-
-                if record_position >= end_position {
-                    break;
-                }
-
-                let (record_size, byte_size) = read_vint(reader)?;
-                let (record_type, _) = read_vint(reader)?;
-
-                let record = match record_type {
-                    main_record::LOCATOR => MainBlockRecord::Locator(LocatorRecord::read(reader)?),
-                    main_record::METADATA => {
-                        MainBlockRecord::Metadata(MetadataRecord::read(reader)?)
-                    }
-                    _ => MainBlockRecord::Unknown(UnknownRecord::new(record_type)),
-                };
-
-                records.push(record);
-
-                reader.seek(io::SeekFrom::Start(
-                    record_position + record_size + byte_size as u64,
-                ))?;
-            }
-
-            records
-        } else {
-            vec![]
-        };
+        let records = read_records(reader, common_header, |reader, record_type| {
+            Ok(match record_type {
+                main_record::LOCATOR => MainBlockRecord::Locator(LocatorRecord::read(reader)?),
+                main_record::METADATA => MainBlockRecord::Metadata(MetadataRecord::read(reader)?),
+                _ => MainBlockRecord::Unknown(UnknownRecord::new(record_type)),
+            })
+        })?;
 
         Ok(MainBlock {
             flags,
