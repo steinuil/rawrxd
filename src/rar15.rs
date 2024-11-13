@@ -311,7 +311,8 @@ impl FileBlock {
         let host_os = read_u8(reader)?;
         let file_crc32 = read_u32(reader)?;
         let modification_time = read_u32(reader)?;
-        let modification_time = time_conv::parse_dos(modification_time).map_err(|_| modification_time);
+        let modification_time =
+            time_conv::parse_dos(modification_time).map_err(|_| modification_time);
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let name_size = read_u16(reader)? as usize;
@@ -422,7 +423,8 @@ impl ServiceBlock {
         let host_os = read_u8(reader)?;
         let file_crc32 = read_u32(reader)?;
         let modification_time = read_u32(reader)?;
-        let modification_time = time_conv::parse_dos(modification_time).map_err(|_| modification_time);
+        let modification_time =
+            time_conv::parse_dos(modification_time).map_err(|_| modification_time);
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let name_size = read_u16(reader)? as usize;

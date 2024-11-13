@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, ops::Deref};
 
 use crate::{
     block::RarBlock,
@@ -190,15 +190,14 @@ impl RarBlock for Block {
 #[derive(Debug)]
 pub struct CryptBlock {
     pub encryption_version: EncryptionVersion,
-    pub flags: CryptBlockFlags,
     pub kdf_count: u8,
     pub salt: [u8; 16],
     pub check_value: Option<[u8; 12]>,
 }
 
 flags! {
-    pub struct CryptBlockFlags(u16) {
-        pub has_password_check = 0x0001;
+    struct CryptBlockFlags(u16) {
+        has_password_check = 0x0001;
     }
 }
 
@@ -228,7 +227,6 @@ impl CryptBlock {
 
         Ok(CryptBlock {
             encryption_version,
-            flags,
             kdf_count,
             salt,
             check_value,
@@ -250,7 +248,7 @@ flags! {
         pub is_volume = 0x0001;
 
         /// Volume number field is present. True for all volumes except first.
-        pub has_volume_number = 0x0002;
+        has_volume_number = 0x0002;
 
         /// https://en.wikipedia.org/wiki/Solid_compression
         pub is_solid = 0x0004;
@@ -261,6 +259,14 @@ flags! {
 
         /// WinRAR will not modify this archive.
         pub is_locked = 0x0010;
+    }
+}
+
+impl Deref for MainBlock {
+    type Target = MainBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
     }
 }
 
@@ -418,12 +424,30 @@ impl MainBlock {
 #[derive(Debug)]
 pub struct FileBlock {
     pub flags: FileBlockFlags,
+
+    /// Size of the file after decompression.
+    /// May be unknown if the actual file size is larger than reported by OS
+    /// or if file size is unknown such as for all volumes except last when archiving
+    /// from stdin to multi-volume archive.
     pub unpacked_size: Option<u64>,
+
+    /// OS-specific file attributes.
     pub attributes: u64,
+
+    /// File modification time.
     pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
-    pub data_crc32: Option<u32>,
+
+    /// CRC32 of unpacked file.
+    pub unpacked_data_crc32: Option<u32>,
+
+    // TODO document and parse this
     pub compression_info: u64,
+
+    /// OS used to create the archive.
     pub host_os: HostOs,
+
+    /// Name of the archived file.
+    /// Forward slash is used as path separator for both Unix and Windows.
     pub name: Vec<u8>,
     pub records: Vec<FileBlockRecord>,
 }
@@ -486,7 +510,7 @@ impl FileBlock {
             None
         };
 
-        let data_crc32 = if flags.has_crc32() {
+        let unpacked_data_crc32 = if flags.has_crc32() {
             Some(read_u32(reader)?)
         } else {
             None
@@ -496,6 +520,8 @@ impl FileBlock {
 
         let (host_os, _) = read_vint(reader)?;
         let (name_length, _) = read_vint(reader)?;
+
+        // TODO convert this to a PathBuf or OsString.
         let name = read_vec(reader, name_length as usize)?;
 
         let records = read_records(reader, common_header, |reader, record_type| {
@@ -517,7 +543,7 @@ impl FileBlock {
             unpacked_size,
             attributes,
             modification_time,
-            data_crc32,
+            unpacked_data_crc32,
             compression_info,
             host_os: (host_os as u8).into(),
             name,
@@ -550,8 +576,6 @@ impl ServiceBlock {
         let (flags, _) = read_vint(reader)?;
         let flags = ServiceBlockFlags::new(flags as u16);
 
-        // TODO should signal that this value might be garbage if the block
-        // has the UNPUNKNOWN flag set
         let (unpacked_size, _) = read_vint(reader)?;
         let unpacked_size = if flags.unknown_unpacked_size() {
             None
@@ -983,3 +1007,14 @@ fn read_windows_time<R: io::Read>(reader: &mut R) -> io::Result<Result<time::Off
     let filetime = read_u64(reader)?;
     Ok(time_conv::parse_windows_filetime(filetime).map_err(|_| filetime))
 }
+
+// fn conv_file_name(mut buf: Vec<u8>) -> Result<String, Vec<u8>> {
+//     if let Some(pos) = buf.windows(2).position(|p| p == [0xFF, 0xFE]) {
+//         let _: Vec<_> = buf.splice(pos..=pos + 1, []).collect();
+
+//         // TODO map 0xE080-0xE0FF to high ASCII bytes
+//         buf = buf.into_iter().map(|c| c).collect();
+//     }
+
+//     String::from_utf8(buf).map_err(|e| e.into_bytes())
+// }
