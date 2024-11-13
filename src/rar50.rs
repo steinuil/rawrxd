@@ -420,7 +420,7 @@ pub struct FileBlock {
     pub flags: FileBlockFlags,
     pub unpacked_size: Option<u64>,
     pub attributes: u64,
-    pub mtime: Option<Result<time::OffsetDateTime, u32>>,
+    pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
     pub data_crc32: Option<u32>,
     pub compression_info: u64,
     pub host_os: HostOs,
@@ -431,7 +431,7 @@ pub struct FileBlock {
 flags! {
     pub struct FileBlockFlags(u16) {
         pub is_directory = 0x0001;
-        pub has_mtime = 0x0002;
+        pub has_modification_time = 0x0002;
         pub has_crc32 = 0x0004;
         pub unknown_unpacked_size = 0x0008;
     }
@@ -480,7 +480,7 @@ impl FileBlock {
 
         let (attributes, _) = read_vint(reader)?;
 
-        let mtime = if flags.has_mtime() {
+        let modification_time = if flags.has_modification_time() {
             Some(read_unix_time_sec(reader)?)
         } else {
             None
@@ -516,7 +516,7 @@ impl FileBlock {
             flags,
             unpacked_size,
             attributes,
-            mtime,
+            modification_time,
             data_crc32,
             compression_info,
             host_os: (host_os as u8).into(),
@@ -530,7 +530,7 @@ impl FileBlock {
 pub struct ServiceBlock {
     pub flags: ServiceBlockFlags,
     pub unpacked_size: Option<u64>,
-    pub mtime: Option<Result<time::OffsetDateTime, u32>>,
+    pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
     pub data_crc32: Option<u32>,
     pub compression_info: u64,
     pub host_os: HostOs,
@@ -539,7 +539,7 @@ pub struct ServiceBlock {
 
 flags! {
     pub struct ServiceBlockFlags(u16) {
-        pub has_mtime = 0x0002;
+        pub has_modification_time = 0x0002;
         pub has_crc32 = 0x0004;
         pub unknown_unpacked_size = 0x0008;
     }
@@ -564,7 +564,7 @@ impl ServiceBlock {
             // log a warning or something
         }
 
-        let mtime = if flags.has_mtime() {
+        let modification_time = if flags.has_modification_time() {
             Some(read_unix_time_sec(reader)?)
         } else {
             None
@@ -586,7 +586,7 @@ impl ServiceBlock {
         Ok(ServiceBlock {
             flags,
             unpacked_size,
-            mtime,
+            modification_time,
             data_crc32,
             compression_info,
             host_os: (host_os as u8).into(),
