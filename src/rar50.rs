@@ -4,6 +4,7 @@ use crate::{
     block::RarBlock,
     read::*,
     size::{DataSize, FullSize as _, HeaderSize},
+    time_conv,
 };
 
 #[derive(Debug)]
@@ -346,19 +347,16 @@ impl MetadataRecord {
         let creation_time = if flags.has_creation_time() {
             let time = if flags.uses_unix_time() {
                 if flags.is_unix_time_nanoseconds() {
-                    let time = read_u64(reader)?;
-
-                    time::OffsetDateTime::from_unix_timestamp_nanos(time.into()).map_err(|_| time)
+                    read_unix_time_nanos(reader)?
                 } else {
-                    let time = read_u32(reader)?;
-                    time::OffsetDateTime::from_unix_timestamp(time.into()).map_err(|_| time as u64)
+                    read_unix_time_sec(reader)?.map_err(|s| s as u64)
                 }
             } else {
                 if flags.is_unix_time_nanoseconds() {
                     // TODO log warning?
                 }
 
-                todo!()
+                read_windows_time(reader)?
             };
 
             Some(time)
@@ -483,8 +481,7 @@ impl FileBlock {
         let (attributes, _) = read_vint(reader)?;
 
         let mtime = if flags.has_mtime() {
-            let mtime = read_u32(reader)?;
-            Some(time::OffsetDateTime::from_unix_timestamp(mtime.into()).map_err(|_| mtime))
+            Some(read_unix_time_sec(reader)?)
         } else {
             None
         };
@@ -568,8 +565,7 @@ impl ServiceBlock {
         }
 
         let mtime = if flags.has_mtime() {
-            let mtime = read_u32(reader)?;
-            Some(time::OffsetDateTime::from_unix_timestamp(mtime.into()).map_err(|_| mtime))
+            Some(read_unix_time_sec(reader)?)
         } else {
             None
         };
@@ -685,8 +681,93 @@ flags! {
 }
 
 impl FileTimeRecord {
-    pub fn read<R: io::Read + io::Seek>(_reader: &mut R) -> io::Result<Self> {
-        todo!()
+    // Get ready for some extremely annoying code!
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = FileTimeRecordFlags::new(flags as u8);
+
+        if flags.uses_unix_time() {
+            let modification_time = if flags.has_modification_time() {
+                Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
+            } else {
+                None
+            };
+
+            let creation_time = if flags.has_creation_time() {
+                Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
+            } else {
+                None
+            };
+
+            let access_time = if flags.has_access_time() {
+                Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
+            } else {
+                None
+            };
+
+            if !flags.has_unix_time_nanoseconds() {
+                return Ok(FileTimeRecord {
+                    modification_time,
+                    creation_time,
+                    access_time,
+                });
+            }
+
+            let modification_time = if let Some(t) = modification_time {
+                let nanos = read_u32(reader)? as i64;
+                Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+            } else {
+                None
+            };
+
+            let creation_time = if let Some(t) = creation_time {
+                let nanos = read_u32(reader)? as i64;
+                Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+            } else {
+                None
+            };
+
+            let access_time = if let Some(t) = access_time {
+                let nanos = read_u32(reader)? as i64;
+                Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+            } else {
+                None
+            };
+
+            Ok(FileTimeRecord {
+                modification_time,
+                creation_time,
+                access_time,
+            })
+        } else {
+            if flags.has_unix_time_nanoseconds() {
+                // TODO log warning
+            }
+
+            let modification_time = if flags.has_modification_time() {
+                Some(read_windows_time(reader)?)
+            } else {
+                None
+            };
+
+            let creation_time = if flags.has_creation_time() {
+                Some(read_windows_time(reader)?)
+            } else {
+                None
+            };
+
+            let access_time = if flags.has_access_time() {
+                Some(read_windows_time(reader)?)
+            } else {
+                None
+            };
+
+            Ok(FileTimeRecord {
+                modification_time,
+                creation_time,
+                access_time,
+            })
+        }
     }
 }
 
@@ -891,4 +972,23 @@ fn read_records<R: io::Read + io::Seek, T, F: Fn(&mut R, u64) -> io::Result<T>>(
     } else {
         Ok(vec![])
     }
+}
+
+fn read_unix_time_nanos<R: io::Read>(
+    reader: &mut R,
+) -> io::Result<Result<time::OffsetDateTime, u64>> {
+    let nanos = read_u64(reader)?;
+    Ok(time_conv::parse_unix_timestamp_ns(nanos).map_err(|_| nanos))
+}
+
+fn read_unix_time_sec<R: io::Read>(
+    reader: &mut R,
+) -> io::Result<Result<time::OffsetDateTime, u32>> {
+    let seconds = read_u32(reader)?;
+    Ok(time_conv::parse_unix_timestamp_sec(seconds).map_err(|_| seconds))
+}
+
+fn read_windows_time<R: io::Read>(reader: &mut R) -> io::Result<Result<time::OffsetDateTime, u64>> {
+    let filetime = read_u64(reader)?;
+    Ok(time_conv::parse_windows_filetime(filetime).map_err(|_| filetime))
 }

@@ -2,9 +2,9 @@ use std::{io, ops::Deref};
 
 use crate::{
     block::RarBlock,
-    dos_time,
     read::*,
     size::{DataSize, FullSize as _, HeaderSize},
+    time_conv,
 };
 
 #[derive(Debug)]
@@ -311,6 +311,7 @@ impl FileBlock {
         let host_os = read_u8(reader)?;
         let file_crc32 = read_u32(reader)?;
         let mtime = read_u32(reader)?;
+        let mtime = time_conv::parse_dos(mtime).map_err(|_| mtime);
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let name_size = read_u16(reader)? as usize;
@@ -347,7 +348,7 @@ impl FileBlock {
             unpacked_data_size,
             host_os: host_os.into(),
             file_crc32,
-            mtime: dos_time::parse(mtime).map_err(|_| mtime),
+            mtime,
             unpack_version,
             method,
             attributes,
@@ -421,6 +422,7 @@ impl ServiceBlock {
         let host_os = read_u8(reader)?;
         let file_crc32 = read_u32(reader)?;
         let mtime = read_u32(reader)?;
+        let mtime = time_conv::parse_dos(mtime).map_err(|_| mtime);
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let name_size = read_u16(reader)? as usize;
@@ -465,7 +467,7 @@ impl ServiceBlock {
             unpacked_data_size,
             host_os: host_os.into(),
             file_crc32,
-            mtime: dos_time::parse(mtime).map_err(|_| mtime),
+            mtime,
             unpack_version,
             method,
             sub_flags,

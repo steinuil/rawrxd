@@ -2,9 +2,9 @@ use std::{ffi::OsString, io, os::unix::ffi::OsStringExt};
 
 use crate::{
     block::RarBlock,
-    dos_time,
     read::*,
     size::{DataSize, FullSize, HeaderSize},
+    time_conv,
 };
 
 #[derive(Debug)]
@@ -237,7 +237,8 @@ impl FileBlock {
         let header_size = read_u16(reader)?;
 
         let modification_time = read_u32(reader)?;
-        let modification_time = dos_time::parse(modification_time).map_err(|_| modification_time);
+        let modification_time =
+            time_conv::parse_dos(modification_time).map_err(|_| modification_time);
 
         let attributes = read_u8(reader)?;
 

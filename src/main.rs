@@ -1,5 +1,4 @@
 mod decompress;
-mod dos_time;
 #[macro_use]
 mod enum_macro;
 #[macro_use]
@@ -13,6 +12,7 @@ pub mod rar_file;
 pub mod rarvm;
 mod read;
 mod size;
+mod time_conv;
 
 use std::{fs, io::BufReader};
 
