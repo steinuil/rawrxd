@@ -1,6 +1,7 @@
 ### References
 
 - https://entropymine.wordpress.com/2022/08/19/survey-of-rar-comment-formats/
+- https://www.liamfoot.com/analysing-the-effectiveness-of-winrar-s-rar5-recovery-records#heading_4
 - https://forensics.wiki/rar/
 - http://justsolve.archiveteam.org/wiki/RAR
 - http://fileformats.archiveteam.org/wiki/RAR
