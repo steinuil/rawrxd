@@ -109,7 +109,6 @@ pub enum BlockKind {
 
 #[derive(Debug)]
 struct CommonHeader {
-    pub flags: CommonFlags,
     pub extra_area_size: Option<u64>,
 }
 
@@ -146,10 +145,7 @@ impl Block {
             None
         };
 
-        let common_header = CommonHeader {
-            flags,
-            extra_area_size,
-        };
+        let common_header = CommonHeader { extra_area_size };
 
         let kind = match header_type {
             Self::MAIN => BlockKind::Main(MainBlock::read(reader, &common_header)?),
@@ -424,7 +420,7 @@ impl MainBlock {
 #[derive(Debug)]
 pub struct FileBlock {
     pub flags: FileBlockFlags,
-    pub unpacked_size: u64,
+    pub unpacked_size: Option<u64>,
     pub attributes: u64,
     pub mtime: Option<Result<time::OffsetDateTime, u32>>,
     pub data_crc32: Option<u32>,
@@ -477,9 +473,12 @@ impl FileBlock {
         let (flags, _) = read_vint(reader)?;
         let flags = FileBlockFlags::new(flags as u16);
 
-        // TODO should signal that this value might be garbage if the block
-        // has the UNPUNKNOWN flag set
         let (unpacked_size, _) = read_vint(reader)?;
+        let unpacked_size = if flags.unknown_unpacked_size() {
+            None
+        } else {
+            Some(unpacked_size)
+        };
 
         let (attributes, _) = read_vint(reader)?;
 
@@ -506,7 +505,7 @@ impl FileBlock {
             Ok(match record_type {
                 Self::CRYPT => FileBlockRecord::Encryption(FileEncryptionRecord::read(reader)?),
                 Self::HASH => FileBlockRecord::Hash(FileHashRecord::read(reader)?),
-                // Self::HTIME => FileBlockRecord::Time( FileTimeRecord::read(reader)?),
+                Self::HTIME => FileBlockRecord::Time(FileTimeRecord::read(reader)?),
                 Self::VERSION => FileBlockRecord::Version(FileVersionRecord::read(reader)?),
                 Self::REDIR => FileBlockRecord::FileSystemRedirection(
                     FileSystemRedirectionRecord::read(reader)?,
@@ -533,7 +532,7 @@ impl FileBlock {
 #[derive(Debug)]
 pub struct ServiceBlock {
     pub flags: ServiceBlockFlags,
-    pub unpacked_size: u64,
+    pub unpacked_size: Option<u64>,
     pub mtime: Option<Result<time::OffsetDateTime, u32>>,
     pub data_crc32: Option<u32>,
     pub compression_info: u64,
@@ -557,6 +556,11 @@ impl ServiceBlock {
         // TODO should signal that this value might be garbage if the block
         // has the UNPUNKNOWN flag set
         let (unpacked_size, _) = read_vint(reader)?;
+        let unpacked_size = if flags.unknown_unpacked_size() {
+            None
+        } else {
+            Some(unpacked_size)
+        };
 
         let (attributes, _) = read_vint(reader)?;
         if attributes != 0 {

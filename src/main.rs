@@ -6,22 +6,17 @@ mod enum_macro;
 mod flags;
 mod block;
 pub mod format;
-mod parse_result;
 pub mod rar14;
 pub mod rar15;
 pub mod rar50;
 pub mod rar_file;
-mod rarvm;
+pub mod rarvm;
 mod read;
 mod size;
 
-use std::{
-    fs,
-    io::{BufReader, Seek, SeekFrom},
-};
+use std::{fs, io::BufReader};
 
 use format::Format;
-use size::FullSize;
 
 fn main() {
     let mut args = std::env::args();
