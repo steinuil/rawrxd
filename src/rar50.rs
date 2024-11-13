@@ -168,7 +168,7 @@ impl Block {
 
         let kind = match header_type {
             block::MAIN => BlockKind::Main(MainBlock::read(reader, &common_header)?),
-            block::FILE => BlockKind::File(FileBlock::read(reader)?),
+            block::FILE => BlockKind::File(FileBlock::read(reader, &common_header)?),
             block::SERVICE => BlockKind::Service(ServiceBlock::read(reader)?),
             block::CRYPT => BlockKind::Crypt(CryptBlock::read(reader)?),
             block::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader)?),
@@ -516,6 +516,7 @@ pub struct FileBlock {
     pub compression_info: u64,
     pub host_os: HostOs,
     pub name: Vec<u8>,
+    pub records: Vec<FileBlockRecord>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -575,8 +576,29 @@ impl TryFrom<u64> for HostOs {
     }
 }
 
+#[derive(Debug)]
+pub enum FileBlockRecord {
+    Encryption(FileEncryptionRecord),
+    Hash(FileHashRecord),
+    Time(FileTimeRecord),
+    Version(FileVersionRecord),
+    FileSystemRedirection(FileSystemRedirectionRecord),
+    UnixOwner(UnixOwnerRecord),
+    Unknown(UnknownRecord),
+}
+
 impl FileBlock {
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+    const CRYPT: u64 = 0x01;
+    const HASH: u64 = 0x02;
+    const HTIME: u64 = 0x03;
+    const VERSION: u64 = 0x04;
+    const REDIR: u64 = 0x05;
+    const UOWNER: u64 = 0x06;
+
+    pub(self) fn read<R: io::Read + io::Seek>(
+        reader: &mut R,
+        common_header: &CommonHeader,
+    ) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
         let flags = FileBlockFlags::new(flags);
 
@@ -604,9 +626,22 @@ impl FileBlock {
         let (compression_info, _) = read_vint(reader)?;
 
         let (host_os, _) = read_vint(reader)?;
-
         let (name_length, _) = read_vint(reader)?;
         let name = read_vec(reader, name_length as usize)?;
+
+        let records = read_records(reader, common_header, |reader, record_type| {
+            Ok(match record_type {
+                Self::CRYPT => FileBlockRecord::Encryption(FileEncryptionRecord::read(reader)?),
+                Self::HASH => FileBlockRecord::Hash(FileHashRecord::read(reader)?),
+                // Self::HTIME => FileBlockRecord::Time( FileTimeRecord::read(reader)?),
+                Self::VERSION => FileBlockRecord::Version(FileVersionRecord::read(reader)?),
+                Self::REDIR => FileBlockRecord::FileSystemRedirection(
+                    FileSystemRedirectionRecord::read(reader)?,
+                ),
+                Self::UOWNER => FileBlockRecord::UnixOwner(UnixOwnerRecord::read(reader)?),
+                _ => FileBlockRecord::Unknown(UnknownRecord::new(record_type)),
+            })
+        })?;
 
         Ok(FileBlock {
             flags,
@@ -617,6 +652,7 @@ impl FileBlock {
             compression_info,
             host_os: host_os.try_into().unwrap(),
             name,
+            records,
         })
     }
 }
@@ -709,6 +745,297 @@ impl ServiceBlock {
             compression_info,
             host_os: host_os.try_into().unwrap(),
             name,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct FileEncryptionRecord {
+    pub flags: FileEncryptionRecordFlags,
+    pub kdf_count: u8,
+    pub salt: [u8; 16],
+    pub iv: [u8; 16],
+    pub check_value: Option<[u8; 12]>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FileEncryptionRecordFlags(u64);
+
+impl FileEncryptionRecordFlags {
+    const PSWCHECK: u64 = 0x01;
+    const HASHMAC: u64 = 0x02;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn has_password_check(&self) -> bool {
+        self.0 & Self::PSWCHECK != 0
+    }
+
+    pub fn use_mac_checksum(&self) -> bool {
+        self.0 & Self::HASHMAC != 0
+    }
+}
+
+impl FileEncryptionRecord {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = FileEncryptionRecordFlags::new(flags);
+
+        let kdf_count = read_u8(reader)?;
+        let salt = read_const_bytes(reader)?;
+        let iv = read_const_bytes(reader)?;
+
+        let check_value = if flags.has_password_check() {
+            Some(read_const_bytes(reader)?)
+        } else {
+            None
+        };
+
+        Ok(FileEncryptionRecord {
+            flags,
+            kdf_count,
+            salt,
+            iv,
+            check_value,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct FileHashRecord {
+    pub hash: FileHash,
+}
+
+#[derive(Debug)]
+pub enum FileHash {
+    Blake2Sp([u8; 32]),
+}
+
+impl FileHash {
+    pub(self) const BLAKE2SP: u64 = 0x00;
+}
+
+impl FileHashRecord {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (hash_type, _) = read_vint(reader)?;
+
+        let hash = match hash_type {
+            FileHash::BLAKE2SP => FileHash::Blake2Sp(read_const_bytes(reader)?),
+            _ => panic!("return an error here"),
+        };
+
+        Ok(FileHashRecord { hash })
+    }
+}
+
+#[derive(Debug)]
+pub struct FileTimeRecord {
+    pub modification_time: Option<time::PrimitiveDateTime>,
+    pub creation_time: Option<time::PrimitiveDateTime>,
+    pub access_time: Option<time::PrimitiveDateTime>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FileTimeRecordFlags(u64);
+
+impl FileTimeRecordFlags {
+    const UNIXTIME: u64 = 0x01;
+    const MTIME: u64 = 0x02;
+    const CTIME: u64 = 0x04;
+    const ATIME: u64 = 0x08;
+    const UNIX_NS: u64 = 0x10;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn uses_unix_time(&self) -> bool {
+        self.0 & Self::UNIXTIME != 0
+    }
+
+    pub fn has_modification_time(&self) -> bool {
+        self.0 & Self::MTIME != 0
+    }
+
+    pub fn has_creation_time(&self) -> bool {
+        self.0 & Self::CTIME != 0
+    }
+
+    pub fn has_access_time(&self) -> bool {
+        self.0 & Self::ATIME != 0
+    }
+
+    pub fn has_unix_time_nanoseconds(&self) -> bool {
+        self.0 & Self::UNIX_NS != 0
+    }
+}
+
+impl FileTimeRecord {
+    pub fn read<R: io::Read + io::Seek>(_reader: &mut R) -> io::Result<Self> {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
+pub struct FileVersionRecord {
+    pub version_number: u64,
+}
+
+impl FileVersionRecord {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        // Unused as of now
+        let (_flags, _) = read_vint(reader)?;
+        let (version_number, _) = read_vint(reader)?;
+
+        Ok(FileVersionRecord { version_number })
+    }
+}
+
+#[derive(Debug)]
+pub struct FileSystemRedirectionRecord {
+    pub redirection_type: FileSystemRedirectionType,
+    pub flags: FileSystemRedirectionRecordFlags,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum FileSystemRedirectionType {
+    UnixSymlink = 0x0001,
+    WindowsSymlink = 0x0002,
+    WindowsJunction = 0x0003,
+    HardLink = 0x0004,
+    FileCopy = 0x0005,
+}
+
+impl TryFrom<u64> for FileSystemRedirectionType {
+    type Error = u64;
+
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        match value {
+            v if v == Self::UnixSymlink as u64 => Ok(Self::UnixSymlink),
+            v if v == Self::WindowsSymlink as u64 => Ok(Self::WindowsSymlink),
+            v if v == Self::WindowsJunction as u64 => Ok(Self::WindowsJunction),
+            v if v == Self::HardLink as u64 => Ok(Self::HardLink),
+            v if v == Self::FileCopy as u64 => Ok(Self::FileCopy),
+            _ => Err(value),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FileSystemRedirectionRecordFlags(u64);
+
+impl FileSystemRedirectionRecordFlags {
+    const DIR: u64 = 0x0001;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.0 & Self::DIR != 0
+    }
+}
+
+impl FileSystemRedirectionRecord {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (redirection_type, _) = read_vint(reader)?;
+        let redirection_type = redirection_type.try_into().unwrap();
+
+        let (flags, _) = read_vint(reader)?;
+        let flags = FileSystemRedirectionRecordFlags::new(flags);
+
+        let (name_length, _) = read_vint(reader)?;
+        let name = read_vec(reader, name_length as usize)?;
+        let name = String::from_utf8(name).unwrap();
+
+        Ok(FileSystemRedirectionRecord {
+            redirection_type,
+            flags,
+            name,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct UnixOwnerRecord {
+    pub user_name: Option<Vec<u8>>,
+    pub group_name: Option<Vec<u8>>,
+    pub user_id: Option<u64>,
+    pub group_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct UnixOwnerRecordFlags(u64);
+
+impl UnixOwnerRecordFlags {
+    const UNAME: u64 = 0x01;
+    const GNAME: u64 = 0x02;
+    const NUMUID: u64 = 0x04;
+    const NUMGID: u64 = 0x08;
+
+    pub fn new(flags: u64) -> Self {
+        Self(flags)
+    }
+
+    pub fn has_user_name(&self) -> bool {
+        self.0 & Self::UNAME != 0
+    }
+
+    pub fn has_group_name(&self) -> bool {
+        self.0 & Self::GNAME != 0
+    }
+
+    pub fn has_user_id(&self) -> bool {
+        self.0 & Self::NUMUID != 0
+    }
+
+    pub fn has_group_id(&self) -> bool {
+        self.0 & Self::NUMGID != 0
+    }
+}
+
+impl UnixOwnerRecord {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = UnixOwnerRecordFlags::new(flags);
+
+        let user_name = if flags.has_user_name() {
+            let (size, _) = read_vint(reader)?;
+            let user_name = read_vec(reader, size as usize)?;
+            Some(user_name)
+        } else {
+            None
+        };
+
+        let group_name = if flags.has_group_name() {
+            let (size, _) = read_vint(reader)?;
+            let group_name = read_vec(reader, size as usize)?;
+            Some(group_name)
+        } else {
+            None
+        };
+
+        let user_id = if flags.has_user_id() {
+            Some(read_vint(reader)?.0)
+        } else {
+            None
+        };
+
+        let group_id = if flags.has_group_id() {
+            Some(read_vint(reader)?.0)
+        } else {
+            None
+        };
+
+        Ok(UnixOwnerRecord {
+            user_name,
+            group_name,
+            user_id,
+            group_id,
         })
     }
 }
