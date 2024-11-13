@@ -1,5 +1,7 @@
 mod decompress;
 mod dos_time;
+#[macro_use]
+mod flags;
 pub mod format;
 mod parse_result;
 pub mod rar14;
@@ -34,14 +36,8 @@ fn main() {
     match format {
         Format::Rar14 => {
             let block = rar14::MainBlock::read(&mut f).unwrap();
-            println!("position: {}", block.position);
-            println!("header_size: {}", block.header_size);
-            println!("flags:");
-            println!("  is_volume: {}", block.is_volume());
-            println!("  is_solid: {}", block.is_solid());
-            println!("  is_locked: {}", block.is_locked());
-            println!("  has_comment: {}", block.has_comment());
-            println!("  is_comment_packed: {}", block.is_comment_packed());
+            println!("{:#?}", block);
+
             let comment = block.read_comment(&mut f).unwrap();
             println!("{:?}", comment);
 

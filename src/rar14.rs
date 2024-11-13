@@ -1,4 +1,4 @@
-use std::{ffi::OsString, io, ops::Deref, os::unix::ffi::OsStringExt};
+use std::{ffi::OsString, io, os::unix::ffi::OsStringExt};
 
 use crate::{
     dos_time,
@@ -13,60 +13,22 @@ pub struct MainBlock {
     pub flags: MainBlockFlags,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct MainBlockFlags(u8);
+flags! {
+    pub struct MainBlockFlags(u8) {
+        /// Archive is part of a multi-volume archive.
+        pub is_volume = 0x01;
 
-impl MainBlockFlags {
-    const VOLUME: u8 = 0x0001;
-    const COMMENT: u8 = 0x0002;
-    const LOCK: u8 = 0x0004;
-    const SOLID: u8 = 0x0008;
-    const PACK_COMMENT: u8 = 0x0010;
+        /// Main header contains a comment.
+        pub has_comment = 0x02;
 
-    pub fn new(flags: u8) -> Self {
-        Self(flags)
-    }
+        /// WinRAR will not modify this archive.
+        pub is_locked = 0x04;
 
-    /// A multi-volume archive is an archive split into multiple files.
-    pub fn is_volume(&self) -> bool {
-        self.0 & Self::VOLUME != 0
-    }
+        /// https://en.wikipedia.org/wiki/Solid_compression
+        pub is_solid = 0x08;
 
-    /// https://en.wikipedia.org/wiki/Solid_compression
-    pub fn is_solid(&self) -> bool {
-        self.0 & Self::SOLID != 0
-    }
-
-    /// A locked archive is just an archive with this flag set,
-    /// and it only serves to prevent WinRAR from modifying it.
-    pub fn is_locked(&self) -> bool {
-        self.0 & Self::LOCK != 0
-    }
-
-    /// Contains a comment
-    pub fn has_comment(&self) -> bool {
-        self.0 & Self::COMMENT != 0
-    }
-
-    /// Is the main header comment packed?
-    pub fn is_comment_packed(&self) -> bool {
-        self.0 & Self::PACK_COMMENT != 0
-    }
-}
-
-impl Deref for MainBlockFlags {
-    type Target = u8;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Deref for MainBlock {
-    type Target = MainBlockFlags;
-
-    fn deref(&self) -> &Self::Target {
-        &self.flags
+        /// The comment in the header is packed.
+        pub(self) is_comment_packed = 0x10;
     }
 }
 
@@ -79,11 +41,12 @@ impl MainBlock {
 
         let header_size = read_u16(reader)?;
         let flags = read_u8(reader)?;
+        let flags = MainBlockFlags::new(flags);
 
         Ok(MainBlock {
             position,
             header_size,
-            flags: MainBlockFlags::new(flags),
+            flags,
         })
     }
 
@@ -150,39 +113,16 @@ pub struct FileBlock {
     pub name: OsString,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct FileBlockFlags(u8);
+flags! {
+    pub struct FileBlockFlags(u8) {
+        /// File is continuing from previous volume.
+        pub split_before = 0x01;
 
-impl FileBlockFlags {
-    const SPLIT_BEFORE: u8 = 0x01;
-    const SPLIT_AFTER: u8 = 0x02;
-    const PASSWORD: u8 = 0x04;
+        /// File is continuing in next volume.
+        pub split_after = 0x02;
 
-    pub fn new(flags: u8) -> Self {
-        FileBlockFlags(flags)
-    }
-
-    /// The first file is split from the previous volume
-    pub fn split_before(&self) -> bool {
-        self.0 & Self::SPLIT_BEFORE != 0
-    }
-
-    /// The last file is split into the next volume
-    pub fn split_after(&self) -> bool {
-        self.0 & Self::SPLIT_AFTER != 0
-    }
-
-    /// The file is encrypted
-    pub fn has_password(&self) -> bool {
-        self.0 & Self::PASSWORD != 0
-    }
-}
-
-impl Deref for FileBlockFlags {
-    type Target = u8;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        /// File is encrypted.
+        pub has_password = 0x04;
     }
 }
 
