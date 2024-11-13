@@ -45,36 +45,21 @@ fn main() {
                 println!("{block:#?}");
             }
         }
-        Format::Rar15 => loop {
-            let block = rar15::Block::read(&mut f).unwrap();
-            println!("{block:#?}");
-            if let rar15::BlockKind::EndArchive(_) = block.kind {
-                break;
+        Format::Rar15 => {
+            let block_reader = rar15::BlockIterator::new(f, file_len).unwrap();
+
+            for block in block_reader {
+                let block = block.unwrap();
+                println!("{block:#?}");
             }
-            f.seek(SeekFrom::Start(block.position + block.full_size()))
-                .unwrap();
+        }
+        Format::Rar50 => {
+            let block_reader = rar50::BlockIterator::new(f, file_len).unwrap();
 
-            let pos = f.stream_position().unwrap();
-
-            if pos == file_len {
-                break;
+            for block in block_reader {
+                let block = block.unwrap();
+                println!("{block:#?}");
             }
-        },
-        Format::Rar50 => loop {
-            let block = rar50::Block::read(&mut f).unwrap();
-            println!("{block:#?}");
-            if let rar50::BlockKind::EndArchive(_) = block.kind {
-                break;
-            }
-
-            f.seek(SeekFrom::Start(block.position + block.full_size()))
-                .unwrap();
-
-            let pos = f.stream_position().unwrap();
-
-            if pos == file_len {
-                break;
-            }
-        },
+        }
     }
 }

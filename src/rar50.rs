@@ -1,9 +1,65 @@
 use std::io;
 
 use crate::{
+    block::RarBlock,
     read::*,
-    size::{DataSize, HeaderSize},
+    size::{DataSize, FullSize as _, HeaderSize},
 };
+
+#[derive(Debug)]
+pub struct BlockIterator<R: io::Read + io::Seek> {
+    reader: R,
+    file_size: u64,
+    next_block_position: u64,
+    end_of_archive_reached: bool,
+}
+
+impl<R: io::Read + io::Seek> BlockIterator<R> {
+    pub(crate) fn new(mut reader: R, file_size: u64) -> io::Result<Self> {
+        let next_block_position = reader.stream_position()?;
+
+        Ok(Self {
+            reader,
+            file_size,
+            next_block_position,
+            end_of_archive_reached: false,
+        })
+    }
+}
+
+impl<R: io::Read + io::Seek> Iterator for BlockIterator<R> {
+    type Item = io::Result<Block>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.end_of_archive_reached {
+            return None;
+        }
+
+        if self.next_block_position == self.file_size {
+            return None;
+        }
+
+        if let Err(e) = self
+            .reader
+            .seek(io::SeekFrom::Start(self.next_block_position))
+        {
+            return Some(Err(e));
+        }
+
+        let block = match Block::read(&mut self.reader) {
+            Ok(block) => block,
+            Err(e) => return Some(Err(e)),
+        };
+
+        self.next_block_position = block.position() + block.full_size();
+
+        if let BlockKind::EndArchive(_) = block.kind {
+            self.end_of_archive_reached = true;
+        }
+
+        Some(Ok(block))
+    }
+}
 
 #[derive(Debug)]
 pub struct Block {
@@ -125,6 +181,12 @@ impl HeaderSize for Block {
 impl DataSize for Block {
     fn data_size(&self) -> u64 {
         self.data_size.unwrap_or(0)
+    }
+}
+
+impl RarBlock for Block {
+    fn position(&self) -> u64 {
+        self.position
     }
 }
 
