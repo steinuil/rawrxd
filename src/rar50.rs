@@ -434,6 +434,7 @@ impl MetadataRecord {
 pub enum MainBlockRecord {
     Locator(LocatorRecord),
     Metadata(MetadataRecord),
+    Unknown(UnknownRecord),
 }
 
 mod main_record {
@@ -474,7 +475,7 @@ impl MainBlock {
                     main_record::METADATA => {
                         MainBlockRecord::Metadata(MetadataRecord::read(reader)?)
                     }
-                    _ => todo!("0x{:x} not implemented", record_type),
+                    _ => MainBlockRecord::Unknown(UnknownRecord::new(record_type)),
                 };
 
                 records.push(record);
@@ -749,5 +750,16 @@ pub struct UnknownBlock {
 impl UnknownBlock {
     pub fn read<R: io::Read + io::Seek>(_reader: &mut R, tag: u64) -> io::Result<Self> {
         Ok(UnknownBlock { tag })
+    }
+}
+
+#[derive(Debug)]
+pub struct UnknownRecord {
+    pub tag: u64,
+}
+
+impl UnknownRecord {
+    pub fn new(tag: u64) -> Self {
+        Self { tag }
     }
 }
