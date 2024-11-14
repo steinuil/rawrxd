@@ -1,4 +1,4 @@
-use std::{ffi::OsString, io, os::unix::ffi::OsStringExt};
+use std::{ffi::OsString, io, ops::Deref, os::unix::ffi::OsStringExt};
 
 use crate::{
     block::RarBlock,
@@ -110,9 +110,16 @@ pub enum BlockKind {
 }
 
 #[derive(Debug)]
+/// The main block is located right after the RAR 1.4 file signature
+/// and contains metadata for the whole archive.
 pub struct MainBlock {
+    /// Position in the file of this block.
     pub position: u64,
+
+    /// Full size of the header from `position`.
     pub header_size: u16,
+
+    /// Main block header flags.
     pub flags: MainBlockFlags,
 }
 
@@ -131,7 +138,7 @@ flags! {
         pub is_solid = 0x08;
 
         /// The comment in the header is packed.
-        pub(self) is_comment_packed = 0x10;
+        is_comment_packed = 0x10;
     }
 }
 
@@ -191,6 +198,14 @@ impl MainBlock {
     }
 }
 
+impl Deref for MainBlock {
+    type Target = MainBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
+    }
+}
+
 impl HeaderSize for MainBlock {
     fn header_size(&self) -> u64 {
         self.header_size as u64
@@ -201,16 +216,37 @@ impl DataSize for MainBlock {}
 
 #[derive(Debug)]
 pub struct FileBlock {
+    /// Position in the file of this block.
     pub position: u64,
+
+    /// Full size of the header from `position`.
     pub header_size: u16,
+
+    /// File block header flags.
     pub flags: FileBlockFlags,
+
+    /// Size of the data area of the block.
     pub packed_data_size: u32,
+
+    /// Size of the file after unpacking.
     pub unpacked_data_size: u32,
+
+    /// CRC16 hash of the unpacked file.
     pub crc16: u16,
+
+    /// Modification time of the file.
     pub modification_time: Result<time::PrimitiveDateTime, u32>,
+
+    /// DOS attributes of the file.
     pub attributes: u8,
+
+    // TODO enumerate the versions
     pub unpack_version: u8,
+
+    // TODO enumerate the methods
     pub method: u8,
+
+    /// Filename of the file.
     pub name: OsString,
 }
 
@@ -266,6 +302,14 @@ impl FileBlock {
             method,
             name,
         })
+    }
+}
+
+impl Deref for FileBlock {
+    type Target = FileBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
     }
 }
 

@@ -297,6 +297,25 @@ flags! {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionMethod {
+    Rar13,
+    Rar15,
+    Rar20,
+    Rar30,
+}
+
+impl From<u8> for EncryptionMethod {
+    fn from(value: u8) -> Self {
+        match value {
+            13 => EncryptionMethod::Rar13,
+            15 => EncryptionMethod::Rar15,
+            20 | 26 => EncryptionMethod::Rar20,
+            _ => EncryptionMethod::Rar30,
+        }
+    }
+}
+
 impl FileBlock {
     const SALT_SIZE: usize = 8;
 }
