@@ -1,112 +1,34 @@
-use std::{ffi::OsString, io, ops::Deref, os::unix::ffi::OsStringExt};
+use std::{ffi::OsString, io, ops::Deref, os::unix::ffi::OsStringExt as _};
 
-use crate::{
-    block::RarBlock,
-    read::*,
-    size::{DataSize, FullSize, HeaderSize},
-    time_conv,
-};
+use crate::{read::*, size::BlockSize, time_conv};
 
 #[derive(Debug)]
-pub struct BlockIterator<R: io::Read + io::Seek> {
-    pub reader: R,
-    pub file_size: u64,
-    has_read_main_block: bool,
-    next_block_position: u64,
-}
-
-impl<R: io::Read + io::Seek> BlockIterator<R> {
-    pub(crate) fn new(mut reader: R, file_size: u64) -> io::Result<Self> {
-        let next_block_position = reader.stream_position()?;
-
-        Ok(Self {
-            reader,
-            file_size,
-            has_read_main_block: false,
-            next_block_position,
-        })
-    }
-}
-
-impl<R: io::Read + io::Seek> Iterator for BlockIterator<R> {
-    type Item = io::Result<Block>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next_block_position == self.file_size {
-            return None;
-        }
-
-        if let Err(e) = self
-            .reader
-            .seek(io::SeekFrom::Start(self.next_block_position))
-        {
-            return Some(Err(e));
-        }
-
-        let block = if !self.has_read_main_block {
-            let block = match MainBlock::read(&mut self.reader) {
-                Ok(block) => block,
-                Err(e) => return Some(Err(e)),
-            };
-
-            self.has_read_main_block = true;
-
-            Block {
-                kind: BlockKind::Main(block),
-            }
-        } else {
-            let block = match FileBlock::read(&mut self.reader) {
-                Ok(block) => block,
-                Err(e) => return Some(Err(e)),
-            };
-
-            Block {
-                kind: BlockKind::File(block),
-            }
-        };
-
-        self.next_block_position = block.position() + block.full_size();
-
-        Some(Ok(block))
-    }
-}
-
-#[derive(Debug)]
-pub struct Block {
-    pub kind: BlockKind,
-}
-
-impl HeaderSize for Block {
-    fn header_size(&self) -> u64 {
-        match &self.kind {
-            BlockKind::Main(block) => block.header_size(),
-            BlockKind::File(block) => block.header_size(),
-        }
-    }
-}
-
-impl DataSize for Block {
-    fn data_size(&self) -> u64 {
-        match &self.kind {
-            BlockKind::Main(block) => block.data_size(),
-            BlockKind::File(block) => block.data_size(),
-        }
-    }
-}
-
-impl RarBlock for Block {
-    fn position(&self) -> u64 {
-        match &self.kind {
-            BlockKind::Main(block) => block.position,
-            BlockKind::File(block) => block.position,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum BlockKind {
+pub enum Block {
     Main(MainBlock),
     File(FileBlock),
+}
+
+impl BlockSize for Block {
+    fn position(&self) -> u64 {
+        match self {
+            Block::Main(b) => b.position(),
+            Block::File(b) => b.position(),
+        }
+    }
+
+    fn header_size(&self) -> u64 {
+        match self {
+            Block::Main(b) => b.header_size(),
+            Block::File(b) => b.header_size(),
+        }
+    }
+
+    fn data_size(&self) -> u64 {
+        match self {
+            Block::Main(b) => b.data_size(),
+            Block::File(b) => b.data_size(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -206,13 +128,15 @@ impl Deref for MainBlock {
     }
 }
 
-impl HeaderSize for MainBlock {
+impl BlockSize for MainBlock {
+    fn position(&self) -> u64 {
+        self.position
+    }
+
     fn header_size(&self) -> u64 {
         self.header_size as u64
     }
 }
-
-impl DataSize for MainBlock {}
 
 #[derive(Debug)]
 pub struct FileBlock {
@@ -313,14 +237,12 @@ impl Deref for FileBlock {
     }
 }
 
-impl HeaderSize for FileBlock {
+impl BlockSize for FileBlock {
+    fn position(&self) -> u64 {
+        self.position
+    }
+
     fn header_size(&self) -> u64 {
         self.header_size as u64
-    }
-}
-
-impl DataSize for FileBlock {
-    fn data_size(&self) -> u64 {
-        self.packed_data_size as u64
     }
 }
