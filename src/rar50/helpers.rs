@@ -23,6 +23,14 @@ pub fn read_windows_time<R: io::Read>(
     Ok(time_conv::parse_windows_filetime(filetime).map_err(|_| filetime))
 }
 
+pub fn read_string<R: io::Read>(
+    reader: &mut R,
+    size: usize,
+) -> io::Result<Result<String, Vec<u8>>> {
+    let str = read_vec(reader, size)?;
+    Ok(String::from_utf8(str).map_err(|e| e.into_bytes()))
+}
+
 const MAPPED_STRING_MARK: char = '\u{fffe}';
 const MAP_CHAR: char = '\u{e000}';
 const MAP_RANGE: Range<char> = '\u{e080}'..'\u{e100}';

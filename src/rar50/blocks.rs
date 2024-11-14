@@ -1037,8 +1037,8 @@ impl FileSystemRedirectionRecord {
 
 #[derive(Debug)]
 pub struct UnixOwnerRecord {
-    pub user_name: Option<Vec<u8>>,
-    pub group_name: Option<Vec<u8>>,
+    pub user_name: Option<Result<String, Vec<u8>>>,
+    pub group_name: Option<Result<String, Vec<u8>>>,
     pub user_id: Option<u64>,
     pub group_id: Option<u64>,
 }
@@ -1059,16 +1059,14 @@ impl UnixOwnerRecord {
 
         let user_name = if flags.has_user_name() {
             let (size, _) = read_vint(reader)?;
-            let user_name = read_vec(reader, size as usize)?;
-            Some(user_name)
+            Some(read_string(reader, size as usize)?)
         } else {
             None
         };
 
         let group_name = if flags.has_group_name() {
             let (size, _) = read_vint(reader)?;
-            let group_name = read_vec(reader, size as usize)?;
-            Some(group_name)
+            Some(read_string(reader, size as usize)?)
         } else {
             None
         };
