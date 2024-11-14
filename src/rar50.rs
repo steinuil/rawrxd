@@ -202,8 +202,7 @@ flags! {
 }
 
 int_enum! {
-    #[repr(u8)]
-    pub enum EncryptionVersion {
+    pub enum EncryptionVersion : u8 {
         Aes256 = 0,
     }
 }
@@ -474,8 +473,7 @@ flags! {
 }
 
 int_enum! {
-    #[repr(u8)]
-    pub enum HostOs {
+    pub enum HostOs : u8 {
         Windows = 0,
         Unix = 1,
     }
@@ -559,16 +557,14 @@ impl std::fmt::Debug for CompressionInfo {
 }
 
 int_enum! {
-    #[repr(u8)]
-    pub enum CompressionAlgorithm  {
+    pub enum CompressionAlgorithm : u8 {
         Pack5 = 0x00,
         Pack7 = 0x01,
     }
 }
 
 int_enum! {
-    #[repr(u8)]
-    pub enum CompressionMethod {
+    pub enum CompressionMethod : u8 {
         NoCompression = 0x00,
         Method1 = 0x01,
         Method2 = 0x02,
@@ -1078,8 +1074,7 @@ pub struct FileSystemRedirectionRecord {
 }
 
 int_enum! {
-    #[repr(u16)]
-    pub enum FileSystemRedirectionType {
+    pub enum FileSystemRedirectionType : u16 {
         UnixSymlink = 0x0001,
         WindowsSymlink = 0x0002,
         WindowsJunction = 0x0003,

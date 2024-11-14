@@ -246,8 +246,7 @@ impl MainBlock {
 impl DataSize for MainBlock {}
 
 int_enum! {
-    #[repr(u8)]
-    pub enum HostOs {
+    pub enum HostOs : u8 {
         MsDos = 0,
         Os2 = 1,
         Win32 = 2,
@@ -552,8 +551,7 @@ impl DataSize for ProtectBlock {
 }
 
 int_enum! {
-    #[repr(u16)]
-    pub enum SubBlockType {
+    pub enum SubBlockType : u16 {
         // EA_HEAD
         Os2ExtendedAttributes = 0x100,
         // UO_HEAD

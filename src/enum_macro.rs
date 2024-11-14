@@ -1,10 +1,9 @@
-/// Automatically implement From<T> for the repr(T) of the enum
+/// Automatically implement From<T> for the type of the enum
 /// and add an Unknown case for when we fail parsing.
 macro_rules! int_enum {
     {
         $(#[doc = $struct_doc:expr])*
-        #[repr($type:ty)]
-        $vis:vis enum $name:ident {
+        $vis:vis enum $name:ident : $type:ty {
             $(
                 $(#[doc = $field_doc:expr])*
                 $field_name:ident = $field_value:expr,
