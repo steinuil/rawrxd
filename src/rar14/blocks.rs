@@ -1,6 +1,8 @@
-use std::{ffi::OsString, io, ops::Deref, os::unix::ffi::OsStringExt as _};
+use std::{io, ops::Deref};
 
 use crate::{read::*, size::BlockSize, time_conv};
+
+use super::helpers::conv_dos_filename;
 
 #[derive(Debug)]
 pub enum Block {
@@ -175,7 +177,7 @@ pub struct FileBlock {
     pub method: u8,
 
     /// Filename of the file.
-    pub name: OsString,
+    pub name: String,
 }
 
 flags! {
@@ -212,10 +214,11 @@ impl FileBlock {
         let unpack_version = if read_u8(reader)? == 2 { 13 } else { 10 };
         let name_size = read_u8(reader)? as usize;
         let method = read_u8(reader)?;
-        let name = read_vec(reader, name_size)?;
 
-        // TODO this should be OS-agnostic.
-        let name = OsString::from_vec(name);
+        let name = read_vec(reader, name_size)?;
+        // Assumes that RAR 1.4 archives were only created on DOS (because that's the
+        // only platform RAR 1.4 ran on, AFAIK), so we only need to handle DOS filenames.
+        let name = conv_dos_filename(name);
 
         Ok(FileBlock {
             position,
