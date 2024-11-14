@@ -1,3 +1,19 @@
+## UnRAR EULA disclaimer
+
+This library is based on the UnRAR source code distributed at https://www.rarlab.com/rar_add.htm
+
+The license of the UnRAR source code states that the code may **not** be used to reverse engineer the RAR compression algorithm and develop a RAR compatible archiver. This applies to this library too, which is derived from the UnRAR source code.
+
+> Unrar source may be used in any software to handle RAR archives
+> without limitations free of charge, but cannot be used to re-create
+> the RAR compression algorithm, which is proprietary. Distribution
+> of modified Unrar source in separate form or as a part of other
+> software is permitted, provided that it is clearly stated in
+> the documentation and source comments that the code may not be used
+> to develop a RAR (WinRAR) compatible archiver.
+
+For more details, refer to the UnRAR source code license and the WinRAR EULA.
+
 ### References
 
 - https://entropymine.wordpress.com/2022/08/19/survey-of-rar-comment-formats/

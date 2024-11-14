@@ -151,7 +151,7 @@ impl Block {
         let kind = match header_type {
             Self::MAIN => BlockKind::Main(MainBlock::read(reader, &common_header)?),
             Self::FILE => BlockKind::File(FileBlock::read(reader, &common_header)?),
-            Self::SERVICE => BlockKind::Service(ServiceBlock::read(reader)?),
+            Self::SERVICE => BlockKind::Service(ServiceBlock::read(reader, &common_header)?),
             Self::CRYPT => BlockKind::Crypt(CryptBlock::read(reader)?),
             Self::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader)?),
             _ => BlockKind::Unknown(UnknownBlock::read(reader, header_type)?),
@@ -399,23 +399,14 @@ impl MainBlock {
             None
         };
 
-        let mut locator = None;
-        let mut metadata = None;
-        let mut unknown_records = vec![];
+        parse_records! {
+            reader,
+            common_header,
+            unknown_records,
 
-        if let Some(extra_area_size) = common_header.extra_area_size {
-            for record in RecordIterator::new(reader, extra_area_size)? {
-                let mut record = record?;
-
-                match record.record_type {
-                    Self::LOCATOR if locator.is_none() => {
-                        locator = Some(LocatorRecord::read(&mut record.data)?)
-                    }
-                    Self::METADATA if metadata.is_none() => {
-                        metadata = Some(MetadataRecord::read(&mut record.data)?)
-                    }
-                    _ => unknown_records.push(UnknownRecord::new(record.record_type)),
-                }
+            let {
+                locator: LocatorRecord = Self::LOCATOR,
+                metadata: MetadataRecord = Self::METADATA,
             }
         }
 
@@ -534,40 +525,18 @@ impl FileBlock {
         // TODO convert this to a PathBuf or OsString.
         let name = read_vec(reader, name_length as usize)?;
 
-        let mut encryption = None;
-        let mut hash = None;
-        let mut extended_time = None;
-        let mut version = None;
-        let mut filesystem_redirection = None;
-        let mut unix_owner = None;
-        let mut unknown_records = vec![];
+        parse_records! {
+            reader,
+            common_header,
+            unknown_records,
 
-        if let Some(extra_area_size) = common_header.extra_area_size {
-            for record in RecordIterator::new(reader, extra_area_size)? {
-                let mut record = record?;
-
-                match record.record_type {
-                    Self::CRYPT if encryption.is_none() => {
-                        encryption = Some(FileEncryptionRecord::read(&mut record.data)?);
-                    }
-                    Self::HASH if hash.is_none() => {
-                        hash = Some(FileHashRecord::read(&mut record.data)?);
-                    }
-                    Self::HTIME if extended_time.is_none() => {
-                        extended_time = Some(FileTimeRecord::read(&mut record.data)?);
-                    }
-                    Self::VERSION if version.is_none() => {
-                        version = Some(FileVersionRecord::read(&mut record.data)?);
-                    }
-                    Self::REDIR if filesystem_redirection.is_none() => {
-                        filesystem_redirection =
-                            Some(FileSystemRedirectionRecord::read(&mut record.data)?);
-                    }
-                    Self::UOWNER if unix_owner.is_none() => {
-                        unix_owner = Some(UnixOwnerRecord::read(&mut record.data)?);
-                    }
-                    _ => unknown_records.push(UnknownRecord::new(record.record_type)),
-                }
+            let {
+                encryption: FileEncryptionRecord = Self::CRYPT,
+                hash: FileHashRecord = Self::HASH,
+                extended_time: FileTimeRecord = Self::HTIME,
+                version: FileVersionRecord = Self::VERSION,
+                filesystem_redirection: FileSystemRedirectionRecord = Self::REDIR,
+                unix_owner: UnixOwnerRecord = Self::UOWNER,
             }
         }
 
@@ -599,7 +568,23 @@ pub struct ServiceBlock {
     pub data_crc32: Option<u32>,
     pub compression_info: u64,
     pub host_os: HostOs,
-    pub name: Vec<u8>,
+    pub name: Result<ServiceBlockType, Vec<u8>>,
+
+    pub encryption: Option<FileEncryptionRecord>,
+
+    pub hash: Option<FileHashRecord>,
+
+    pub extended_time: Option<FileTimeRecord>,
+
+    pub version: Option<FileVersionRecord>,
+
+    pub filesystem_redirection: Option<FileSystemRedirectionRecord>,
+
+    pub unix_owner: Option<UnixOwnerRecord>,
+
+    pub recovery_record: Option<RecoveryRecordRecord>,
+
+    pub unknown_records: Vec<UnknownRecord>,
 }
 
 flags! {
@@ -610,8 +595,68 @@ flags! {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ServiceBlockType {
+    Comment,
+    QuickOpen,
+    NtfsFilePermissions,
+    NtfsAlternateDataStream,
+    RecoveryRecord,
+}
+
+impl ServiceBlockType {
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        match bytes {
+            b"CMT" => Some(Self::Comment),
+            b"QO" => Some(Self::QuickOpen),
+            b"ACL" => Some(Self::NtfsFilePermissions),
+            b"STM" => Some(Self::NtfsAlternateDataStream),
+            b"RR" => Some(Self::RecoveryRecord),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+/// The recovery record is not used in WinRAR.
+/// Here is more information about it.
+/// https://www.win-rar.com/faq-passwords.html?&L=0
+pub struct RecoveryRecordRecord {
+    /// Percentage of the record size in relation to the archive.
+    pub percentage: u8,
+
+    /// Usually two bytes, unrelated to the size of the archive.
+    pub unknown: Vec<u8>,
+}
+
+impl RecoveryRecordRecord {
+    fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let percentage = read_u8(reader)?;
+        let mut unknown = vec![];
+        // Assumes we're reading from the cursor.
+        reader.read_to_end(&mut unknown)?;
+
+        Ok(RecoveryRecordRecord {
+            percentage,
+            unknown,
+        })
+    }
+}
+
 impl ServiceBlock {
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+    const CRYPT: u64 = 0x01;
+    const HASH: u64 = 0x02;
+    const HTIME: u64 = 0x03;
+    const VERSION: u64 = 0x04;
+    const REDIR: u64 = 0x05;
+    const UOWNER: u64 = 0x06;
+    const SERVICE_DATA: u64 = 0x07;
+
+    fn read<R: io::Read + io::Seek>(
+        reader: &mut R,
+        common_header: &CommonHeader,
+    ) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
         let flags = ServiceBlockFlags::new(flags as u16);
 
@@ -645,6 +690,40 @@ impl ServiceBlock {
 
         let (name_length, _) = read_vint(reader)?;
         let name = read_vec(reader, name_length as usize)?;
+        let name = ServiceBlockType::from_bytes(&name).ok_or(name);
+
+        let mut recovery_record = None;
+
+        parse_records! {
+            reader,
+            common_header,
+            unknown_records,
+
+            let {
+                encryption: FileEncryptionRecord = Self::CRYPT,
+                hash: FileHashRecord = Self::HASH,
+                extended_time: FileTimeRecord = Self::HTIME,
+                version: FileVersionRecord = Self::VERSION,
+                filesystem_redirection: FileSystemRedirectionRecord = Self::REDIR,
+                unix_owner: UnixOwnerRecord = Self::UOWNER,
+            }
+
+            let record {
+                Self::SERVICE_DATA => {
+                    match name {
+                        Ok(ServiceBlockType::RecoveryRecord) => {
+                            recovery_record = Some(RecoveryRecordRecord::read(&mut record.data)?);
+                        }
+                        Ok(ServiceBlockType::QuickOpen) => {
+                            todo!()
+                        }
+                        _ => {
+                            unknown_records.push(UnknownRecord::new(Self::SERVICE_DATA))
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(ServiceBlock {
             flags,
@@ -654,6 +733,14 @@ impl ServiceBlock {
             compression_info,
             host_os: (host_os as u8).into(),
             name,
+            encryption,
+            hash,
+            extended_time,
+            version,
+            filesystem_redirection,
+            unix_owner,
+            recovery_record,
+            unknown_records,
         })
     }
 }
@@ -1113,34 +1200,6 @@ fn read_unix_time_sec<R: io::Read>(
 fn read_windows_time<R: io::Read>(reader: &mut R) -> io::Result<Result<time::OffsetDateTime, u64>> {
     let filetime = read_u64(reader)?;
     Ok(time_conv::parse_windows_filetime(filetime).map_err(|_| filetime))
-}
-
-macro_rules! parse_records {
-    {
-        $(
-            $var_name:ident: $struct_name:ident = $tag:expr
-        ),*
-    } => {
-        $(
-            let mut $var_name = None;
-        )*
-        let mut unknown_records = vec![];
-
-        if let Some(extra_area_size) = common_header.extra_area_size {
-            for record in RecordIterator::new(reader, extra_area_size)? {
-                let mut record = record?;
-
-                match record.record_type {
-                    $(
-                        $tag if $var_name.is_none() => {
-                            $var_name = Some($struct_nane::read(&mut record.data));
-                        }
-                    )*
-                    _ => unknown_records.push(UnknownRecord::new(record.record_type)),
-                }
-            }
-        }
-    }
 }
 
 // fn conv_file_name(mut buf: Vec<u8>) -> Result<String, Vec<u8>> {

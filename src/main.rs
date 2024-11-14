@@ -1,9 +1,11 @@
-mod decompress;
 #[macro_use]
 mod enum_macro;
 #[macro_use]
 mod flags;
+#[macro_use]
+mod parse_records;
 mod block;
+mod decompress;
 pub mod format;
 pub mod rar14;
 pub mod rar15;
