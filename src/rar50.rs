@@ -238,8 +238,9 @@ impl CryptBlock {
 pub struct MainBlock {
     pub flags: MainBlockFlags,
     pub volume_number: Option<u64>,
-    // TODO shouldn't it be an error to have > 1 record of each type?
-    pub records: Vec<MainBlockRecord>,
+    pub locator: Option<LocatorRecord>,
+    pub metadata: Option<MetadataRecord>,
+    pub unknown_records: Vec<UnknownRecord>,
 }
 
 flags! {
@@ -278,8 +279,8 @@ pub struct LocatorRecord {
 
 flags! {
     struct LocatorRecordFlags(u8) {
-        pub has_quick_open_record_offset = 0x01;
-        pub has_recovery_record_offset = 0x02;
+        has_quick_open_record_offset = 0x01;
+        has_recovery_record_offset = 0x02;
     }
 }
 
@@ -325,10 +326,10 @@ pub struct MetadataRecord {
 
 flags! {
     struct MetadataRecordFlags(u8) {
-        pub has_archive_name = 0x01;
-        pub has_creation_time = 0x02;
-        pub uses_unix_time = 0x04;
-        pub is_unix_time_nanoseconds = 0x08;
+        has_archive_name = 0x01;
+        has_creation_time = 0x02;
+        uses_unix_time = 0x04;
+        is_unix_time_nanoseconds = 0x08;
     }
 }
 
@@ -381,13 +382,6 @@ impl MetadataRecord {
     }
 }
 
-#[derive(Debug)]
-pub enum MainBlockRecord {
-    Locator(LocatorRecord),
-    Metadata(MetadataRecord),
-    Unknown(UnknownRecord),
-}
-
 impl MainBlock {
     const LOCATOR: u64 = 0x0001;
     const METADATA: u64 = 0x0002;
@@ -405,18 +399,32 @@ impl MainBlock {
             None
         };
 
-        let records = read_records(reader, common_header, |reader, record_type| {
-            Ok(match record_type {
-                Self::LOCATOR => MainBlockRecord::Locator(LocatorRecord::read(reader)?),
-                Self::METADATA => MainBlockRecord::Metadata(MetadataRecord::read(reader)?),
-                _ => MainBlockRecord::Unknown(UnknownRecord::new(record_type)),
-            })
-        })?;
+        let mut locator = None;
+        let mut metadata = None;
+        let mut unknown_records = vec![];
+
+        if let Some(extra_area_size) = common_header.extra_area_size {
+            for record in RecordIterator::new(reader, extra_area_size)? {
+                let mut record = record?;
+
+                match record.record_type {
+                    Self::LOCATOR if locator.is_none() => {
+                        locator = Some(LocatorRecord::read(&mut record.data)?)
+                    }
+                    Self::METADATA if metadata.is_none() => {
+                        metadata = Some(MetadataRecord::read(&mut record.data)?)
+                    }
+                    _ => unknown_records.push(UnknownRecord::new(record.record_type)),
+                }
+            }
+        }
 
         Ok(MainBlock {
             flags,
             volume_number,
-            records,
+            locator,
+            metadata,
+            unknown_records,
         })
     }
 }
@@ -449,7 +457,20 @@ pub struct FileBlock {
     /// Name of the archived file.
     /// Forward slash is used as path separator for both Unix and Windows.
     pub name: Vec<u8>,
-    pub records: Vec<FileBlockRecord>,
+
+    pub encryption: Option<FileEncryptionRecord>,
+
+    pub hash: Option<FileHashRecord>,
+
+    pub extended_time: Option<FileTimeRecord>,
+
+    pub version: Option<FileVersionRecord>,
+
+    pub filesystem_redirection: Option<FileSystemRedirectionRecord>,
+
+    pub unix_owner: Option<UnixOwnerRecord>,
+
+    pub unknown_records: Vec<UnknownRecord>,
 }
 
 flags! {
@@ -467,17 +488,6 @@ int_enum! {
         Windows = 0,
         Unix = 1,
     }
-}
-
-#[derive(Debug)]
-pub enum FileBlockRecord {
-    Encryption(FileEncryptionRecord),
-    Hash(FileHashRecord),
-    Time(FileTimeRecord),
-    Version(FileVersionRecord),
-    FileSystemRedirection(FileSystemRedirectionRecord),
-    UnixOwner(UnixOwnerRecord),
-    Unknown(UnknownRecord),
 }
 
 impl FileBlock {
@@ -524,19 +534,42 @@ impl FileBlock {
         // TODO convert this to a PathBuf or OsString.
         let name = read_vec(reader, name_length as usize)?;
 
-        let records = read_records(reader, common_header, |reader, record_type| {
-            Ok(match record_type {
-                Self::CRYPT => FileBlockRecord::Encryption(FileEncryptionRecord::read(reader)?),
-                Self::HASH => FileBlockRecord::Hash(FileHashRecord::read(reader)?),
-                Self::HTIME => FileBlockRecord::Time(FileTimeRecord::read(reader)?),
-                Self::VERSION => FileBlockRecord::Version(FileVersionRecord::read(reader)?),
-                Self::REDIR => FileBlockRecord::FileSystemRedirection(
-                    FileSystemRedirectionRecord::read(reader)?,
-                ),
-                Self::UOWNER => FileBlockRecord::UnixOwner(UnixOwnerRecord::read(reader)?),
-                _ => FileBlockRecord::Unknown(UnknownRecord::new(record_type)),
-            })
-        })?;
+        let mut encryption = None;
+        let mut hash = None;
+        let mut extended_time = None;
+        let mut version = None;
+        let mut filesystem_redirection = None;
+        let mut unix_owner = None;
+        let mut unknown_records = vec![];
+
+        if let Some(extra_area_size) = common_header.extra_area_size {
+            for record in RecordIterator::new(reader, extra_area_size)? {
+                let mut record = record?;
+
+                match record.record_type {
+                    Self::CRYPT if encryption.is_none() => {
+                        encryption = Some(FileEncryptionRecord::read(&mut record.data)?);
+                    }
+                    Self::HASH if hash.is_none() => {
+                        hash = Some(FileHashRecord::read(&mut record.data)?);
+                    }
+                    Self::HTIME if extended_time.is_none() => {
+                        extended_time = Some(FileTimeRecord::read(&mut record.data)?);
+                    }
+                    Self::VERSION if version.is_none() => {
+                        version = Some(FileVersionRecord::read(&mut record.data)?);
+                    }
+                    Self::REDIR if filesystem_redirection.is_none() => {
+                        filesystem_redirection =
+                            Some(FileSystemRedirectionRecord::read(&mut record.data)?);
+                    }
+                    Self::UOWNER if unix_owner.is_none() => {
+                        unix_owner = Some(UnixOwnerRecord::read(&mut record.data)?);
+                    }
+                    _ => unknown_records.push(UnknownRecord::new(record.record_type)),
+                }
+            }
+        }
 
         Ok(FileBlock {
             flags,
@@ -547,7 +580,13 @@ impl FileBlock {
             compression_info,
             host_os: (host_os as u8).into(),
             name,
-            records,
+            encryption,
+            hash,
+            extended_time,
+            version,
+            filesystem_redirection,
+            unix_owner,
+            unknown_records,
         })
     }
 }
@@ -955,6 +994,74 @@ impl UnknownRecord {
     }
 }
 
+struct CommonRecord {
+    record_type: u64,
+    data: io::Cursor<Vec<u8>>,
+}
+
+struct RecordIterator<'a, R: io::Read + io::Seek> {
+    reader: &'a mut R,
+    end_position: u64,
+    next_record_position: u64,
+}
+
+impl<'a, R: io::Read + io::Seek> RecordIterator<'a, R> {
+    fn new(reader: &'a mut R, extra_area_size: u64) -> io::Result<Self> {
+        let pos = reader.stream_position()?;
+        let end_position = pos + extra_area_size;
+        let next_record_position = pos;
+
+        Ok(Self {
+            reader,
+            end_position,
+            next_record_position,
+        })
+    }
+}
+
+impl<'a, R: io::Read + io::Seek> Iterator for RecordIterator<'a, R> {
+    type Item = io::Result<CommonRecord>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Err(e) = self
+            .reader
+            .seek(io::SeekFrom::Start(self.next_record_position))
+        {
+            return Some(Err(e));
+        }
+
+        let record_position = match self.reader.stream_position() {
+            Ok(pos) => pos,
+            Err(e) => return Some(Err(e)),
+        };
+
+        if record_position >= self.end_position {
+            return None;
+        }
+
+        let (record_size, byte_size) = match read_vint(self.reader) {
+            Ok(res) => res,
+            Err(e) => return Some(Err(e)),
+        };
+        let (record_type, type_byte_size) = match read_vint(self.reader) {
+            Ok(res) => res,
+            Err(e) => return Some(Err(e)),
+        };
+
+        let data = match read_vec(self.reader, record_size as usize + type_byte_size as usize) {
+            Ok(res) => res,
+            Err(e) => return Some(Err(e)),
+        };
+
+        self.next_record_position += record_size + byte_size as u64;
+
+        Some(Ok(CommonRecord {
+            record_type,
+            data: io::Cursor::new(data),
+        }))
+    }
+}
+
 fn read_records<R: io::Read + io::Seek, T, F: Fn(&mut R, u64) -> io::Result<T>>(
     reader: &mut R,
     common_header: &CommonHeader,
@@ -1006,6 +1113,34 @@ fn read_unix_time_sec<R: io::Read>(
 fn read_windows_time<R: io::Read>(reader: &mut R) -> io::Result<Result<time::OffsetDateTime, u64>> {
     let filetime = read_u64(reader)?;
     Ok(time_conv::parse_windows_filetime(filetime).map_err(|_| filetime))
+}
+
+macro_rules! parse_records {
+    {
+        $(
+            $var_name:ident: $struct_name:ident = $tag:expr
+        ),*
+    } => {
+        $(
+            let mut $var_name = None;
+        )*
+        let mut unknown_records = vec![];
+
+        if let Some(extra_area_size) = common_header.extra_area_size {
+            for record in RecordIterator::new(reader, extra_area_size)? {
+                let mut record = record?;
+
+                match record.record_type {
+                    $(
+                        $tag if $var_name.is_none() => {
+                            $var_name = Some($struct_nane::read(&mut record.data));
+                        }
+                    )*
+                    _ => unknown_records.push(UnknownRecord::new(record.record_type)),
+                }
+            }
+        }
+    }
 }
 
 // fn conv_file_name(mut buf: Vec<u8>) -> Result<String, Vec<u8>> {
