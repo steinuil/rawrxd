@@ -56,3 +56,11 @@ pub fn read_vec<R: io::Read>(r: &mut R, size: usize) -> io::Result<Vec<u8>> {
     r.read_exact(&mut buf)?;
     Ok(buf)
 }
+
+pub fn read_string<R: io::Read>(
+    reader: &mut R,
+    size: usize,
+) -> io::Result<Result<String, Vec<u8>>> {
+    let str = read_vec(reader, size)?;
+    Ok(String::from_utf8(str).map_err(|e| e.into_bytes()))
+}

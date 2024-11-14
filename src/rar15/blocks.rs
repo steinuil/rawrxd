@@ -227,7 +227,7 @@ pub struct FileBlock {
     pub unpack_version: u8,
     pub method: u8,
     pub attributes: u32,
-    pub file_name: Vec<u8>,
+    pub file_name: Result<String, Vec<u8>>,
     pub salt: Option<[u8; Self::SALT_SIZE]>,
 }
 
@@ -271,9 +271,16 @@ impl FileBlock {
         let modification_time = read_u32(reader)?;
         let modification_time =
             time_conv::parse_dos(modification_time).map_err(|_| modification_time);
+
+        // TODO map the possible values
         let unpack_version = read_u8(reader)?;
+
+        // TODO map the possible values
         let method = read_u8(reader)?;
+
         let name_size = read_u16(reader)? as usize;
+
+        // TODO map the attributes
         let attributes = read_u32(reader)?;
 
         let (packed_data_size, unpacked_data_size) = if flags.has_large_size() {
@@ -288,11 +295,19 @@ impl FileBlock {
             (low_packed_data_size, low_unpacked_data_size)
         };
 
-        let file_name = read_vec(reader, name_size)?;
-
-        if flags.is_filename_unicode() {
-            // TODO decode the filename to unicode?
-        }
+        let file_name = if flags.is_filename_unicode() {
+            read_string(reader, name_size as usize)?
+        } else {
+            // TODO decode the filename when it's not unicode.
+            // On Unix it uses CharToWide, which is guaranteed to return garbage
+            // if we get a string with a character > 127 or if the OEM code page does
+            // not map ASCII characters to their normal meaning.
+            // On Windows  it uses the current OEM code page (which I think is set by locale?)
+            // so we could use this crate or at least suggest to use it:
+            // https://crates.io/crates/oem_cp
+            // For now we can just try to read unicode.
+            read_string(reader, name_size as usize)?
+        };
 
         let salt = if flags.has_salt() {
             Some(read_const_bytes(reader)?)

@@ -4,7 +4,7 @@ use crate::{rar14, rar15, rar50, size::BlockSize};
 pub enum Block {
     Rar14(rar14::Block),
     Rar15(rar15::Block),
-    Rar50(rar50::Block),
+    Rar50(Box<rar50::Block>),
 }
 
 #[derive(Debug)]

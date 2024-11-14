@@ -23,20 +23,18 @@ pub fn read_windows_time<R: io::Read>(
     Ok(time_conv::parse_windows_filetime(filetime).map_err(|_| filetime))
 }
 
-pub fn read_string<R: io::Read>(
-    reader: &mut R,
-    size: usize,
-) -> io::Result<Result<String, Vec<u8>>> {
-    let str = read_vec(reader, size)?;
-    Ok(String::from_utf8(str).map_err(|e| e.into_bytes()))
-}
-
 const MAPPED_STRING_MARK: char = '\u{fffe}';
 const MAP_CHAR: char = '\u{e000}';
 const MAP_RANGE: Range<char> = '\u{e080}'..'\u{e100}';
 
-// This is not a bug-for-bug implementation of unrar's WideToCharMap,
-// because it'll "fix" high ascii characters to their UTF-8 version.
+/// Decode a RAR5 filename containing invalid high ASCII characters into UTF-8.
+///
+/// RAR5 encodes filenames as UTF-8, but it considers the possibility
+/// that the filename on Unix systems might contain "high ASCII" characters
+/// (128-255) which would be invalid in Unicode, so it maps them to the 0xE000-0xE0FF
+/// private use Unicode area.
+/// This is not a "correct" implementation of unrar's version of this function,
+/// because it'll "fix" high ascii characters to their UTF-8 version.
 pub fn unmap_high_ascii_chars(buf: Vec<u8>) -> Result<String, Vec<u8>> {
     let mut string = String::from_utf8(buf).map_err(|e| e.into_bytes())?;
 
@@ -60,6 +58,6 @@ pub fn unmap_high_ascii_chars(buf: Vec<u8>) -> Result<String, Vec<u8>> {
 
 #[test]
 fn test_conv_file_name() {
-    let high_ascii_file_name = vec![239, 191, 190, 238, 131, 134];
+    let high_ascii_file_name = b"\xef\xbf\xbe\xee\x83\x86".to_vec();
     assert_eq!(unmap_high_ascii_chars(high_ascii_file_name).unwrap(), "Æ");
 }
