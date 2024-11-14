@@ -2,7 +2,7 @@ use std::{io, ops::Deref};
 
 use crate::{read::*, size::BlockSize};
 
-use super::{helpers::*, record_iterator::*};
+use super::{helpers::*, record_iterator::*, MAX_PATH_SIZE};
 
 #[derive(Debug)]
 pub struct Block {
@@ -346,7 +346,7 @@ pub struct FileBlock {
 
     /// Name of the archived file.
     /// Forward slash is used as path separator for both Unix and Windows.
-    pub name: Vec<u8>,
+    pub name: Result<String, Vec<u8>>,
 
     pub encryption: Option<FileEncryptionRecord>,
 
@@ -517,8 +517,8 @@ impl FileBlock {
         let (host_os, _) = read_vint(reader)?;
         let (name_length, _) = read_vint(reader)?;
 
-        // TODO convert this to a PathBuf or OsString.
-        let name = read_vec(reader, name_length as usize)?;
+        let name = read_vec(reader, name_length.clamp(0, MAX_PATH_SIZE) as usize)?;
+        let name = unmap_high_ascii_chars(name);
 
         parse_records! {
             reader,
