@@ -440,7 +440,7 @@ pub struct FileBlock {
     pub unpacked_data_crc32: Option<u32>,
 
     // TODO document and parse this
-    pub compression_info: u64,
+    pub compression_info: CompressionInfo,
 
     /// OS used to create the archive.
     pub host_os: HostOs,
@@ -481,6 +481,103 @@ int_enum! {
     }
 }
 
+pub struct CompressionInfo(u64);
+
+impl CompressionInfo {
+    const ALGORITHM_MASK: u64 = 0x003f;
+    const SOLID_MASK: u64 = 0x0040;
+    const METHOD_MASK: u64 = 0x0380;
+    const MIN_DICT_SIZE_MASK: u64 = 0x7c00;
+    const DICT_SIZE_FACTOR_MASK: u64 = 0xf8000;
+    const USES_PACK_5_ALGORITHM_MASK: u64 = 0x100_000;
+
+    pub const MIN_DICT_SIZE: u64 = 0x20_000;
+    pub const MAX_DICT_SIZE: u64 = 0x1_000_000_000;
+
+    pub fn new(info: u64) -> Self {
+        Self(info)
+    }
+
+    /// Version of WinRAR required to unpack the file.
+    fn version(&self) -> CompressionAlgorithm {
+        ((self.0 & Self::ALGORITHM_MASK) as u8).into()
+    }
+
+    fn uses_pack_5_algorithm(&self) -> bool {
+        self.0 & Self::USES_PACK_5_ALGORITHM_MASK != 0
+    }
+
+    pub fn algorithm(&self) -> CompressionAlgorithm {
+        match self.version() {
+            CompressionAlgorithm::Pack7 if self.uses_pack_5_algorithm() => {
+                CompressionAlgorithm::Pack5
+            }
+            algo => algo,
+        }
+    }
+
+    pub fn is_solid(&self) -> bool {
+        self.0 & Self::SOLID_MASK != 0
+    }
+
+    pub fn method(&self) -> CompressionMethod {
+        (((self.0 & Self::METHOD_MASK) >> 7) as u8).into()
+    }
+
+    /// Minimum dictionary size required to extract data.
+    /// UnRAR seems to have a maximum dict size of 64GiB, so if we get more than that
+    /// we return an error with the reported size.
+    pub fn min_dictionary_size(&self) -> Result<u64, u64> {
+        let factor = (self.0 & Self::MIN_DICT_SIZE_MASK) >> 10;
+
+        let size = if self.version() == CompressionAlgorithm::Pack7 {
+            let extra_factor = (self.0 & Self::DICT_SIZE_FACTOR_MASK) >> 15;
+
+            let size = Self::MIN_DICT_SIZE << (factor & 0x1f);
+            size + size / 32 * extra_factor
+        } else {
+            Self::MIN_DICT_SIZE << (factor & 0x0f)
+        };
+
+        if size <= Self::MAX_DICT_SIZE {
+            Ok(size)
+        } else {
+            Err(size)
+        }
+    }
+}
+
+impl std::fmt::Debug for CompressionInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompressionInfo")
+            .field("algorithm", &self.algorithm())
+            .field("is_solid", &self.is_solid())
+            .field("method", &self.method())
+            .field("min_dictionary_size", &self.min_dictionary_size())
+            .finish()
+    }
+}
+
+int_enum! {
+    #[repr(u8)]
+    pub enum CompressionAlgorithm  {
+        Pack5 = 0x00,
+        Pack7 = 0x01,
+    }
+}
+
+int_enum! {
+    #[repr(u8)]
+    pub enum CompressionMethod {
+        NoCompression = 0x00,
+        Method1 = 0x01,
+        Method2 = 0x02,
+        Method3 = 0x03,
+        Method4 = 0x04,
+        Method5 = 0x05,
+    }
+}
+
 impl FileBlock {
     const CRYPT: u64 = 0x01;
     const HASH: u64 = 0x02;
@@ -518,6 +615,7 @@ impl FileBlock {
         };
 
         let (compression_info, _) = read_vint(reader)?;
+        let compression_info = CompressionInfo::new(compression_info);
 
         let (host_os, _) = read_vint(reader)?;
         let (name_length, _) = read_vint(reader)?;
@@ -566,7 +664,7 @@ pub struct ServiceBlock {
     pub unpacked_size: Option<u64>,
     pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
     pub data_crc32: Option<u32>,
-    pub compression_info: u64,
+    pub compression_info: CompressionInfo,
     pub host_os: HostOs,
 
     pub encryption: Option<FileEncryptionRecord>,
@@ -708,6 +806,7 @@ impl ServiceBlock {
         };
 
         let (compression_info, _) = read_vint(reader)?;
+        let compression_info = CompressionInfo::new(compression_info);
 
         let (host_os, _) = read_vint(reader)?;
 
@@ -828,6 +927,7 @@ pub struct FileHashRecord {
 #[derive(Debug)]
 pub enum FileHash {
     Blake2Sp([u8; 32]),
+    Unknown(u64),
 }
 
 impl FileHash {
@@ -840,7 +940,7 @@ impl FileHashRecord {
 
         let hash = match hash_type {
             FileHash::BLAKE2SP => FileHash::Blake2Sp(read_const_bytes(reader)?),
-            _ => panic!("return an error here"),
+            _ => FileHash::Unknown(hash_type),
         };
 
         Ok(FileHashRecord { hash })
