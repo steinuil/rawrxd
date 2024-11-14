@@ -136,6 +136,10 @@ impl BlockSize for MainBlock {
     fn header_size(&self) -> u64 {
         self.header_size as u64
     }
+
+    fn data_size(&self) -> u64 {
+        0
+    }
 }
 
 #[derive(Debug)]
@@ -244,5 +248,9 @@ impl BlockSize for FileBlock {
 
     fn header_size(&self) -> u64 {
         self.header_size as u64
+    }
+
+    fn data_size(&self) -> u64 {
+        self.packed_data_size as u64
     }
 }

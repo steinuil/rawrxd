@@ -1,66 +1,8 @@
 use std::{io, ops::Deref};
 
-use crate::{
-    block::RarBlock,
-    read::*,
-    size::{DataSize, FullSize as _, HeaderSize},
-    time_conv,
-};
+use crate::{read::*, size::BlockSize, time_conv};
 
-#[derive(Debug)]
-pub struct BlockIterator<R: io::Read + io::Seek> {
-    reader: R,
-    file_size: u64,
-    next_block_position: u64,
-    end_of_archive_reached: bool,
-}
-
-impl<R: io::Read + io::Seek> BlockIterator<R> {
-    pub(crate) fn new(mut reader: R, file_size: u64) -> io::Result<Self> {
-        let next_block_position = reader.stream_position()?;
-
-        Ok(Self {
-            reader,
-            file_size,
-            next_block_position,
-            end_of_archive_reached: false,
-        })
-    }
-}
-
-impl<R: io::Read + io::Seek> Iterator for BlockIterator<R> {
-    type Item = io::Result<Block>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.end_of_archive_reached {
-            return None;
-        }
-
-        if self.next_block_position == self.file_size {
-            return None;
-        }
-
-        if let Err(e) = self
-            .reader
-            .seek(io::SeekFrom::Start(self.next_block_position))
-        {
-            return Some(Err(e));
-        }
-
-        let block = match Block::read(&mut self.reader) {
-            Ok(block) => block,
-            Err(e) => return Some(Err(e)),
-        };
-
-        self.next_block_position = block.position() + block.full_size();
-
-        if let BlockKind::EndArchive(_) = block.kind {
-            self.end_of_archive_reached = true;
-        }
-
-        Some(Ok(block))
-    }
-}
+use super::NAME_MAX_SIZE;
 
 #[derive(Debug)]
 pub struct Block {
@@ -126,32 +68,28 @@ impl Block {
     }
 }
 
-impl HeaderSize for Block {
+impl BlockSize for Block {
+    fn position(&self) -> u64 {
+        self.position
+    }
+
     fn header_size(&self) -> u64 {
         self.header_size as u64
     }
-}
 
-impl DataSize for Block {
     fn data_size(&self) -> u64 {
         match &self.kind {
-            BlockKind::Main(b) => b.data_size(),
-            BlockKind::File(b) => b.data_size(),
-            BlockKind::Service(b) => b.data_size(),
-            BlockKind::EndArchive(b) => b.data_size(),
-            BlockKind::Comment(b) => b.data_size(),
-            BlockKind::Av(b) => b.data_size(),
-            BlockKind::Sub(b) => b.data_size(),
-            BlockKind::Protect(b) => b.data_size(),
-            BlockKind::Sign(b) => b.data_size(),
-            BlockKind::Unknown(b) => b.data_size(),
+            BlockKind::File(b) => b.packed_data_size,
+            BlockKind::Service(b) => b.packed_data_size,
+            BlockKind::Sub(b) => b.data_size as u64,
+            BlockKind::Protect(b) => b.data_size as u64,
+            BlockKind::Unknown(b) => b.data_size.unwrap_or(0) as u64,
+            BlockKind::Main(_)
+            | BlockKind::EndArchive(_)
+            | BlockKind::Comment(_)
+            | BlockKind::Av(_)
+            | BlockKind::Sign(_) => 0,
         }
-    }
-}
-
-impl RarBlock for Block {
-    fn position(&self) -> u64 {
-        self.position
     }
 }
 
@@ -168,8 +106,6 @@ pub enum BlockKind {
     Sign(SignBlock),
     Unknown(UnknownBlock),
 }
-
-const NAME_MAX_SIZE: u16 = 1000;
 
 #[derive(Debug)]
 pub struct MainBlock {
@@ -243,7 +179,13 @@ impl MainBlock {
     }
 }
 
-impl DataSize for MainBlock {}
+impl Deref for MainBlock {
+    type Target = MainBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
+    }
+}
 
 int_enum! {
     pub enum HostOs : u8 {
@@ -253,6 +195,25 @@ int_enum! {
         Unix = 3,
         MacOs = 4,
         BeOs = 5,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionMethod {
+    Rar13,
+    Rar15,
+    Rar20,
+    Rar30,
+}
+
+impl From<u8> for EncryptionMethod {
+    fn from(value: u8) -> Self {
+        match value {
+            13 => EncryptionMethod::Rar13,
+            15 => EncryptionMethod::Rar15,
+            20 | 26 => EncryptionMethod::Rar20,
+            _ => EncryptionMethod::Rar30,
+        }
     }
 }
 
@@ -297,30 +258,9 @@ flags! {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EncryptionMethod {
-    Rar13,
-    Rar15,
-    Rar20,
-    Rar30,
-}
-
-impl From<u8> for EncryptionMethod {
-    fn from(value: u8) -> Self {
-        match value {
-            13 => EncryptionMethod::Rar13,
-            15 => EncryptionMethod::Rar15,
-            20 | 26 => EncryptionMethod::Rar20,
-            _ => EncryptionMethod::Rar30,
-        }
-    }
-}
-
 impl FileBlock {
     const SALT_SIZE: usize = 8;
-}
 
-impl FileBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = FileBlockFlags::new(flags);
 
@@ -374,12 +314,6 @@ impl FileBlock {
             file_name,
             salt,
         })
-    }
-}
-
-impl DataSize for FileBlock {
-    fn data_size(&self) -> u64 {
-        self.packed_data_size
     }
 }
 
@@ -498,9 +432,11 @@ impl ServiceBlock {
     }
 }
 
-impl DataSize for ServiceBlock {
-    fn data_size(&self) -> u64 {
-        self.packed_data_size
+impl Deref for ServiceBlock {
+    type Target = ServiceBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
     }
 }
 
@@ -529,8 +465,6 @@ impl CommentBlock {
     }
 }
 
-impl DataSize for CommentBlock {}
-
 #[derive(Debug)]
 pub struct ProtectBlock {
     // TODO do we need flags?
@@ -543,9 +477,7 @@ pub struct ProtectBlock {
 
 impl ProtectBlock {
     const MARK_SIZE: usize = 8;
-}
 
-impl ProtectBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let data_size = read_u32(reader)?;
         let version = read_u8(reader)?;
@@ -560,12 +492,6 @@ impl ProtectBlock {
             total_blocks,
             mark,
         })
-    }
-}
-
-impl DataSize for ProtectBlock {
-    fn data_size(&self) -> u64 {
-        self.data_size as u64
     }
 }
 
@@ -687,7 +613,7 @@ impl NtfsStreamSubBlock {
 }
 
 #[derive(Debug)]
-pub enum Sub {
+pub enum SubBlockKind {
     UnixOwner(UnixOwnerSubBlock),
     MacOsInfo(MacOsInfoSubBlock),
     ExtendedAttributes(ExtendedAttributesSubBlock),
@@ -699,7 +625,7 @@ pub enum Sub {
 pub struct SubBlock {
     pub data_size: u32,
     pub level: u8,
-    pub sub_block: Sub,
+    pub kind: SubBlockKind,
 }
 
 impl SubBlock {
@@ -711,45 +637,39 @@ impl SubBlock {
         let sub_block = match sub_type.into() {
             SubBlockType::UnixOwner => {
                 let sub_block = UnixOwnerSubBlock::read(reader)?;
-                Sub::UnixOwner(sub_block)
+                SubBlockKind::UnixOwner(sub_block)
             }
             SubBlockType::MacOsInfo => {
                 let sub_block = MacOsInfoSubBlock::read(reader)?;
-                Sub::MacOsInfo(sub_block)
+                SubBlockKind::MacOsInfo(sub_block)
             }
             SubBlockType::Os2ExtendedAttributes => {
                 let sub_block =
                     ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::Os2)?;
-                Sub::ExtendedAttributes(sub_block)
+                SubBlockKind::ExtendedAttributes(sub_block)
             }
             SubBlockType::BeOsExtendedAttributes => {
                 let sub_block =
                     ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::BeOs)?;
-                Sub::ExtendedAttributes(sub_block)
+                SubBlockKind::ExtendedAttributes(sub_block)
             }
             SubBlockType::NtfsAcl => {
                 let sub_block =
                     ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::Ntfs)?;
-                Sub::ExtendedAttributes(sub_block)
+                SubBlockKind::ExtendedAttributes(sub_block)
             }
             SubBlockType::NtfsStream => {
                 let sub_block = NtfsStreamSubBlock::read(reader)?;
-                Sub::NtfsStream(sub_block)
+                SubBlockKind::NtfsStream(sub_block)
             }
-            SubBlockType::Unknown(_) => Sub::Unknown(sub_type),
+            SubBlockType::Unknown(_) => SubBlockKind::Unknown(sub_type),
         };
 
         Ok(SubBlock {
             data_size,
             level,
-            sub_block,
+            kind: sub_block,
         })
-    }
-}
-
-impl DataSize for SubBlock {
-    fn data_size(&self) -> u64 {
-        self.data_size as u64
     }
 }
 
@@ -774,8 +694,6 @@ impl SignBlock {
         })
     }
 }
-
-impl DataSize for SignBlock {}
 
 #[derive(Debug)]
 pub struct AvBlock {
@@ -802,8 +720,6 @@ impl AvBlock {
     }
 }
 
-impl DataSize for AvBlock {}
-
 #[derive(Debug)]
 pub struct EndArchiveBlock {
     pub flags: EndArchiveBlockFlags,
@@ -824,14 +740,6 @@ flags! {
 
         /// Store the number of the current volume.
         pub has_volume_number = 0x0008;
-    }
-}
-
-impl Deref for EndArchiveBlockFlags {
-    type Target = u16;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
@@ -861,7 +769,13 @@ impl EndArchiveBlock {
     }
 }
 
-impl DataSize for EndArchiveBlock {}
+impl Deref for EndArchiveBlock {
+    type Target = EndArchiveBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
+    }
+}
 
 #[derive(Debug)]
 pub struct UnknownBlock {
@@ -889,8 +803,10 @@ impl UnknownBlock {
     }
 }
 
-impl DataSize for UnknownBlock {
-    fn data_size(&self) -> u64 {
-        self.data_size.unwrap_or(0) as u64
+impl Deref for UnknownBlock {
+    type Target = CommonFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
     }
 }
