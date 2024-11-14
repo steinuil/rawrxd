@@ -11,7 +11,7 @@ macro_rules! parse_records {
         }
 
         $(
-            let $record:ident {
+            match $record:ident {
                 $(
                     $extra_tag:pat => $extra_block:block
                 )*

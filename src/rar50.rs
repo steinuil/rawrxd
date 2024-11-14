@@ -568,7 +568,6 @@ pub struct ServiceBlock {
     pub data_crc32: Option<u32>,
     pub compression_info: u64,
     pub host_os: HostOs,
-    pub name: Result<ServiceBlockType, Vec<u8>>,
 
     pub encryption: Option<FileEncryptionRecord>,
 
@@ -582,9 +581,9 @@ pub struct ServiceBlock {
 
     pub unix_owner: Option<UnixOwnerRecord>,
 
-    pub recovery_record: Option<RecoveryRecordRecord>,
-
     pub unknown_records: Vec<UnknownRecord>,
+
+    pub kind: ServiceBlockKind,
 }
 
 flags! {
@@ -597,7 +596,7 @@ flags! {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum ServiceBlockType {
+enum ServiceBlockType {
     Comment,
     QuickOpen,
     NtfsFilePermissions,
@@ -619,10 +618,34 @@ impl ServiceBlockType {
 }
 
 #[derive(Debug)]
+pub enum ServiceBlockKind {
+    Comment(CommentServiceBlock),
+    QuickOpen(QuickOpenServiceBlock),
+    NtfsFilePermissions,
+    NtfsAlternateDataStream,
+    RecoveryRecord(RecoveryRecordServiceBlock),
+    Unknown(Vec<u8>),
+}
+
+#[derive(Debug)]
+// Does not contain any records.
+pub struct QuickOpenServiceBlock;
+
+#[derive(Debug)]
+// Does not contain any records.
+pub struct CommentServiceBlock;
+
+#[derive(Debug)]
+pub struct RecoveryRecordServiceBlock {
+    // It is probably illegal for this to be missing.
+    pub info: Option<RecoveryRecordInfo>,
+}
+
+#[derive(Debug)]
 /// The recovery record is not used in WinRAR.
 /// Here is more information about it.
 /// https://www.win-rar.com/faq-passwords.html?&L=0
-pub struct RecoveryRecordRecord {
+pub struct RecoveryRecordInfo {
     /// Percentage of the record size in relation to the archive.
     pub percentage: u8,
 
@@ -630,14 +653,14 @@ pub struct RecoveryRecordRecord {
     pub unknown: Vec<u8>,
 }
 
-impl RecoveryRecordRecord {
+impl RecoveryRecordInfo {
     fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
         let percentage = read_u8(reader)?;
         let mut unknown = vec![];
         // Assumes we're reading from the cursor.
         reader.read_to_end(&mut unknown)?;
 
-        Ok(RecoveryRecordRecord {
+        Ok(RecoveryRecordInfo {
             percentage,
             unknown,
         })
@@ -708,14 +731,11 @@ impl ServiceBlock {
                 unix_owner: UnixOwnerRecord = Self::UOWNER,
             }
 
-            let record {
+            match record {
                 Self::SERVICE_DATA => {
                     match name {
                         Ok(ServiceBlockType::RecoveryRecord) => {
-                            recovery_record = Some(RecoveryRecordRecord::read(&mut record.data)?);
-                        }
-                        Ok(ServiceBlockType::QuickOpen) => {
-                            todo!()
+                            recovery_record = Some(RecoveryRecordInfo::read(&mut record.data)?);
                         }
                         _ => {
                             unknown_records.push(UnknownRecord::new(Self::SERVICE_DATA))
@@ -725,6 +745,21 @@ impl ServiceBlock {
             }
         }
 
+        let kind = match name {
+            Ok(ServiceBlockType::Comment) => ServiceBlockKind::Comment(CommentServiceBlock),
+            Ok(ServiceBlockType::QuickOpen) => ServiceBlockKind::QuickOpen(QuickOpenServiceBlock),
+            Ok(ServiceBlockType::NtfsFilePermissions) => ServiceBlockKind::NtfsFilePermissions,
+            Ok(ServiceBlockType::NtfsAlternateDataStream) => {
+                ServiceBlockKind::NtfsAlternateDataStream
+            }
+            Ok(ServiceBlockType::RecoveryRecord) => {
+                ServiceBlockKind::RecoveryRecord(RecoveryRecordServiceBlock {
+                    info: recovery_record,
+                })
+            }
+            Err(name) => ServiceBlockKind::Unknown(name),
+        };
+
         Ok(ServiceBlock {
             flags,
             unpacked_size,
@@ -732,15 +767,14 @@ impl ServiceBlock {
             data_crc32,
             compression_info,
             host_os: (host_os as u8).into(),
-            name,
             encryption,
             hash,
             extended_time,
             version,
             filesystem_redirection,
             unix_owner,
-            recovery_record,
             unknown_records,
+            kind,
         })
     }
 }
