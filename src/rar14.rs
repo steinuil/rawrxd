@@ -222,8 +222,8 @@ flags! {
         /// File is continuing in next volume.
         pub split_after = 0x02;
 
-        /// File is encrypted.
-        pub has_password = 0x04;
+        /// File is encrypted with a password.
+        pub is_encrypted = 0x04;
     }
 }
 
