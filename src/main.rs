@@ -4,6 +4,7 @@ mod int_enum;
 mod flags;
 #[macro_use]
 mod parse_records;
+pub mod compat;
 pub mod format;
 pub mod rar14;
 pub mod rar15;
