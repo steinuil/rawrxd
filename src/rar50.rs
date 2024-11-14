@@ -450,6 +450,7 @@ pub struct FileBlock {
 
     pub encryption: Option<FileEncryptionRecord>,
 
+    /// Hash of unpacked file.
     pub hash: Option<FileHashRecord>,
 
     pub extended_time: Option<FileTimeRecord>,
@@ -651,6 +652,18 @@ impl FileBlock {
             unix_owner,
             unknown_records,
         })
+    }
+}
+
+impl FileBlock {
+    pub fn modification_time(&self) -> Option<Result<time::OffsetDateTime, u64>> {
+        if let Some(t) = &self.extended_time {
+            if let Some(t) = &t.modification_time {
+                return Some(*t);
+            }
+        }
+
+        self.modification_time.map(|r| r.map_err(|t| t as u64))
     }
 }
 
