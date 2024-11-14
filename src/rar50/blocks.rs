@@ -1,66 +1,8 @@
 use std::{io, ops::Deref};
 
-use crate::{
-    block::RarBlock,
-    read::*,
-    size::{DataSize, FullSize as _, HeaderSize},
-    time_conv,
-};
+use crate::{read::*, size::BlockSize};
 
-#[derive(Debug)]
-pub struct BlockIterator<R: io::Read + io::Seek> {
-    reader: R,
-    file_size: u64,
-    next_block_position: u64,
-    end_of_archive_reached: bool,
-}
-
-impl<R: io::Read + io::Seek> BlockIterator<R> {
-    pub(crate) fn new(mut reader: R, file_size: u64) -> io::Result<Self> {
-        let next_block_position = reader.stream_position()?;
-
-        Ok(Self {
-            reader,
-            file_size,
-            next_block_position,
-            end_of_archive_reached: false,
-        })
-    }
-}
-
-impl<R: io::Read + io::Seek> Iterator for BlockIterator<R> {
-    type Item = io::Result<Block>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.end_of_archive_reached {
-            return None;
-        }
-
-        if self.next_block_position == self.file_size {
-            return None;
-        }
-
-        if let Err(e) = self
-            .reader
-            .seek(io::SeekFrom::Start(self.next_block_position))
-        {
-            return Some(Err(e));
-        }
-
-        let block = match Block::read(&mut self.reader) {
-            Ok(block) => block,
-            Err(e) => return Some(Err(e)),
-        };
-
-        self.next_block_position = block.position() + block.full_size();
-
-        if let BlockKind::EndArchive(_) = block.kind {
-            self.end_of_archive_reached = true;
-        }
-
-        Some(Ok(block))
-    }
-}
+use super::{helpers::*, record_iterator::*};
 
 #[derive(Debug)]
 pub struct Block {
@@ -169,67 +111,25 @@ impl Block {
     }
 }
 
-impl HeaderSize for Block {
-    fn header_size(&self) -> u64 {
-        self.header_size
+impl Deref for Block {
+    type Target = CommonFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
     }
 }
 
-impl DataSize for Block {
-    fn data_size(&self) -> u64 {
-        self.data_size.unwrap_or(0)
-    }
-}
-
-impl RarBlock for Block {
+impl BlockSize for Block {
     fn position(&self) -> u64 {
         self.position
     }
-}
 
-#[derive(Debug)]
-pub struct CryptBlock {
-    pub encryption_version: EncryptionVersion,
-    pub kdf_count: u8,
-    pub salt: [u8; 16],
-    pub check_value: Option<[u8; 12]>,
-}
-
-flags! {
-    struct CryptBlockFlags(u16) {
-        has_password_check = 0x0001;
+    fn header_size(&self) -> u64 {
+        self.header_size
     }
-}
 
-int_enum! {
-    pub enum EncryptionVersion : u8 {
-        Aes256 = 0,
-    }
-}
-
-impl CryptBlock {
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
-        let (encryption_version, _) = read_vint(reader)?;
-        let encryption_version = (encryption_version as u8).into();
-
-        let (flags, _) = read_vint(reader)?;
-        let flags = CryptBlockFlags::new(flags as u16);
-
-        let kdf_count = read_u8(reader)?;
-        let salt = read_const_bytes(reader)?;
-
-        let check_value = if flags.has_password_check() {
-            Some(read_const_bytes(reader)?)
-        } else {
-            None
-        };
-
-        Ok(CryptBlock {
-            encryption_version,
-            kdf_count,
-            salt,
-            check_value,
-        })
+    fn data_size(&self) -> u64 {
+        self.data_size.unwrap_or(0)
     }
 }
 
@@ -259,6 +159,44 @@ flags! {
 
         /// WinRAR will not modify this archive.
         pub is_locked = 0x0010;
+    }
+}
+
+impl MainBlock {
+    const LOCATOR: u64 = 0x0001;
+    const METADATA: u64 = 0x0002;
+
+    pub(self) fn read<R: io::Read + io::Seek>(
+        reader: &mut R,
+        common_header: &CommonHeader,
+    ) -> io::Result<Self> {
+        let (flags, _) = read_vint(reader)?;
+        let flags = MainBlockFlags::new(flags as u16);
+
+        let volume_number = if flags.has_volume_number() {
+            Some(read_vint(reader)?.0)
+        } else {
+            None
+        };
+
+        parse_records! {
+            reader,
+            common_header,
+            unknown_records,
+
+            let {
+                locator: LocatorRecord = Self::LOCATOR,
+                metadata: MetadataRecord = Self::METADATA,
+            }
+        }
+
+        Ok(MainBlock {
+            flags,
+            volume_number,
+            locator,
+            metadata,
+            unknown_records,
+        })
     }
 }
 
@@ -377,44 +315,6 @@ impl MetadataRecord {
         Ok(MetadataRecord {
             name,
             creation_time,
-        })
-    }
-}
-
-impl MainBlock {
-    const LOCATOR: u64 = 0x0001;
-    const METADATA: u64 = 0x0002;
-
-    pub(self) fn read<R: io::Read + io::Seek>(
-        reader: &mut R,
-        common_header: &CommonHeader,
-    ) -> io::Result<Self> {
-        let (flags, _) = read_vint(reader)?;
-        let flags = MainBlockFlags::new(flags as u16);
-
-        let volume_number = if flags.has_volume_number() {
-            Some(read_vint(reader)?.0)
-        } else {
-            None
-        };
-
-        parse_records! {
-            reader,
-            common_header,
-            unknown_records,
-
-            let {
-                locator: LocatorRecord = Self::LOCATOR,
-                metadata: MetadataRecord = Self::METADATA,
-            }
-        }
-
-        Ok(MainBlock {
-            flags,
-            volume_number,
-            locator,
-            metadata,
-            unknown_records,
         })
     }
 }
@@ -653,9 +553,7 @@ impl FileBlock {
             unknown_records,
         })
     }
-}
 
-impl FileBlock {
     pub fn modification_time(&self) -> Option<Result<time::OffsetDateTime, u64>> {
         if let Some(t) = &self.extended_time {
             if let Some(t) = &t.modification_time {
@@ -667,6 +565,13 @@ impl FileBlock {
     }
 }
 
+impl Deref for FileBlock {
+    type Target = FileBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
+    }
+}
 #[derive(Debug)]
 pub struct ServiceBlock {
     pub flags: ServiceBlockFlags,
@@ -884,6 +789,14 @@ impl ServiceBlock {
             unknown_records,
             kind,
         })
+    }
+}
+
+impl Deref for ServiceBlock {
+    type Target = ServiceBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
     }
 }
 
@@ -1182,6 +1095,52 @@ impl UnixOwnerRecord {
 }
 
 #[derive(Debug)]
+pub struct CryptBlock {
+    pub encryption_version: EncryptionVersion,
+    pub kdf_count: u8,
+    pub salt: [u8; 16],
+    pub check_value: Option<[u8; 12]>,
+}
+
+flags! {
+    struct CryptBlockFlags(u16) {
+        has_password_check = 0x0001;
+    }
+}
+
+int_enum! {
+    pub enum EncryptionVersion : u8 {
+        Aes256 = 0,
+    }
+}
+
+impl CryptBlock {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (encryption_version, _) = read_vint(reader)?;
+        let encryption_version = (encryption_version as u8).into();
+
+        let (flags, _) = read_vint(reader)?;
+        let flags = CryptBlockFlags::new(flags as u16);
+
+        let kdf_count = read_u8(reader)?;
+        let salt = read_const_bytes(reader)?;
+
+        let check_value = if flags.has_password_check() {
+            Some(read_const_bytes(reader)?)
+        } else {
+            None
+        };
+
+        Ok(CryptBlock {
+            encryption_version,
+            kdf_count,
+            salt,
+            check_value,
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct EndArchiveBlock {
     pub flags: EndArchiveBlockFlags,
 }
@@ -1198,6 +1157,14 @@ impl EndArchiveBlock {
         let flags = EndArchiveBlockFlags::new(flags as u16);
 
         Ok(EndArchiveBlock { flags })
+    }
+}
+
+impl Deref for EndArchiveBlock {
+    type Target = EndArchiveBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
     }
 }
 
@@ -1222,135 +1189,3 @@ impl UnknownRecord {
         Self { tag }
     }
 }
-
-struct CommonRecord {
-    record_type: u64,
-    data: io::Cursor<Vec<u8>>,
-}
-
-struct RecordIterator<'a, R: io::Read + io::Seek> {
-    reader: &'a mut R,
-    end_position: u64,
-    next_record_position: u64,
-}
-
-impl<'a, R: io::Read + io::Seek> RecordIterator<'a, R> {
-    fn new(reader: &'a mut R, extra_area_size: u64) -> io::Result<Self> {
-        let pos = reader.stream_position()?;
-        let end_position = pos + extra_area_size;
-        let next_record_position = pos;
-
-        Ok(Self {
-            reader,
-            end_position,
-            next_record_position,
-        })
-    }
-}
-
-impl<'a, R: io::Read + io::Seek> Iterator for RecordIterator<'a, R> {
-    type Item = io::Result<CommonRecord>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Err(e) = self
-            .reader
-            .seek(io::SeekFrom::Start(self.next_record_position))
-        {
-            return Some(Err(e));
-        }
-
-        let record_position = match self.reader.stream_position() {
-            Ok(pos) => pos,
-            Err(e) => return Some(Err(e)),
-        };
-
-        if record_position >= self.end_position {
-            return None;
-        }
-
-        let (record_size, byte_size) = match read_vint(self.reader) {
-            Ok(res) => res,
-            Err(e) => return Some(Err(e)),
-        };
-        let (record_type, type_byte_size) = match read_vint(self.reader) {
-            Ok(res) => res,
-            Err(e) => return Some(Err(e)),
-        };
-
-        let data = match read_vec(self.reader, record_size as usize + type_byte_size as usize) {
-            Ok(res) => res,
-            Err(e) => return Some(Err(e)),
-        };
-
-        self.next_record_position += record_size + byte_size as u64;
-
-        Some(Ok(CommonRecord {
-            record_type,
-            data: io::Cursor::new(data),
-        }))
-    }
-}
-
-fn read_records<R: io::Read + io::Seek, T, F: Fn(&mut R, u64) -> io::Result<T>>(
-    reader: &mut R,
-    common_header: &CommonHeader,
-    parse: F,
-) -> io::Result<Vec<T>> {
-    if let Some(size) = common_header.extra_area_size {
-        let end_position = reader.stream_position()? + size;
-        let mut records = vec![];
-
-        loop {
-            let record_position = reader.stream_position()?;
-
-            if record_position >= end_position {
-                break;
-            }
-
-            let (record_size, byte_size) = read_vint(reader)?;
-            let (record_type, _) = read_vint(reader)?;
-
-            let record = parse(reader, record_type)?;
-
-            records.push(record);
-
-            reader.seek(io::SeekFrom::Start(
-                record_position + record_size + byte_size as u64,
-            ))?;
-        }
-
-        Ok(records)
-    } else {
-        Ok(vec![])
-    }
-}
-
-fn read_unix_time_nanos<R: io::Read>(
-    reader: &mut R,
-) -> io::Result<Result<time::OffsetDateTime, u64>> {
-    let nanos = read_u64(reader)?;
-    Ok(time_conv::parse_unix_timestamp_ns(nanos).map_err(|_| nanos))
-}
-
-fn read_unix_time_sec<R: io::Read>(
-    reader: &mut R,
-) -> io::Result<Result<time::OffsetDateTime, u32>> {
-    let seconds = read_u32(reader)?;
-    Ok(time_conv::parse_unix_timestamp_sec(seconds).map_err(|_| seconds))
-}
-
-fn read_windows_time<R: io::Read>(reader: &mut R) -> io::Result<Result<time::OffsetDateTime, u64>> {
-    let filetime = read_u64(reader)?;
-    Ok(time_conv::parse_windows_filetime(filetime).map_err(|_| filetime))
-}
-
-// fn conv_file_name(mut buf: Vec<u8>) -> Result<String, Vec<u8>> {
-//     if let Some(pos) = buf.windows(2).position(|p| p == [0xFF, 0xFE]) {
-//         let _: Vec<_> = buf.splice(pos..=pos + 1, []).collect();
-
-//         // TODO map 0xE080-0xE0FF to high ASCII bytes
-//         buf = buf.into_iter().map(|c| c).collect();
-//     }
-
-//     String::from_utf8(buf).map_err(|e| e.into_bytes())
-// }
