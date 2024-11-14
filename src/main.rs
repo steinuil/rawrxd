@@ -1,17 +1,14 @@
 #[macro_use]
-mod enum_macro;
+mod int_enum;
 #[macro_use]
 mod flags;
 #[macro_use]
 mod parse_records;
-mod block;
-mod decompress;
 pub mod format;
 pub mod rar14;
 pub mod rar15;
 pub mod rar50;
 pub mod rar_file;
-pub mod rarvm;
 mod read;
 mod size;
 mod time_conv;
