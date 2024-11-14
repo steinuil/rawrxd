@@ -63,6 +63,8 @@ flags! {
 
         /// The comment in the header is packed.
         is_comment_packed = 0x10;
+
+        pub has_supplementary_field = 0x20;
     }
 }
 
@@ -176,6 +178,8 @@ pub struct FileBlock {
     // TODO enumerate the methods
     pub method: u8,
 
+    pub comment: Option<Vec<u8>>,
+
     /// Filename of the file.
     pub name: String,
 }
@@ -190,6 +194,9 @@ flags! {
 
         /// File is encrypted with a password.
         pub is_encrypted = 0x04;
+
+        /// File header contains comment
+        pub has_comment = 0x08;
     }
 }
 
@@ -215,6 +222,15 @@ impl FileBlock {
         let name_size = read_u8(reader)? as usize;
         let method = read_u8(reader)?;
 
+        // UnRAR doesn't even read this, but the documentation for RAR 1.4
+        // says it might be present.
+        let comment = if flags.has_comment() {
+            let comment_size = read_u16(reader)?;
+            Some(read_vec(reader, comment_size as usize)?)
+        } else {
+            None
+        };
+
         let name = read_vec(reader, name_size)?;
         // Assumes that RAR 1.4 archives were only created on DOS (because that's the
         // only platform RAR 1.4 ran on, AFAIK), so we only need to handle DOS filenames.
@@ -231,6 +247,7 @@ impl FileBlock {
             attributes,
             unpack_version,
             method,
+            comment,
             name,
         })
     }
