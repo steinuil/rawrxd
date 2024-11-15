@@ -64,3 +64,14 @@ pub fn read_string<R: io::Read>(
     let str = read_vec(reader, size)?;
     Ok(String::from_utf8(str).map_err(|e| e.into_bytes()))
 }
+
+pub fn read_vint_sized<R: io::Read>(reader: &mut R, size: u8) -> io::Result<u64> {
+    let mut num = 0;
+
+    for i in 0..size {
+        let byte = read_u8(reader)? as u64;
+        num |= byte << (i * 8);
+    }
+
+    Ok(num)
+}

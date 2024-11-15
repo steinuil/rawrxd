@@ -2,7 +2,7 @@ use std::{io, ops::Deref};
 
 use crate::{read::*, size::BlockSize, time_conv};
 
-use super::NAME_MAX_SIZE;
+use super::{extended_time::ExtendedTime, NAME_MAX_SIZE};
 
 #[derive(Debug)]
 pub struct Block {
@@ -224,6 +224,9 @@ pub struct FileBlock {
     pub host_os: HostOs,
     pub file_crc32: u32,
     pub modification_time: Result<time::PrimitiveDateTime, u32>,
+    pub creation_time: Option<Result<time::PrimitiveDateTime, u32>>,
+    pub access_time: Option<Result<time::PrimitiveDateTime, u32>>,
+    pub archive_time: Option<Result<time::PrimitiveDateTime, u32>>,
     pub unpack_version: u8,
     pub method: u8,
     pub attributes: u32,
@@ -269,7 +272,7 @@ impl FileBlock {
         let host_os = read_u8(reader)?;
         let file_crc32 = read_u32(reader)?;
         let modification_time = read_u32(reader)?;
-        let modification_time =
+        let mut modification_time =
             time_conv::parse_dos(modification_time).map_err(|_| modification_time);
 
         // TODO map the possible values
@@ -315,7 +318,18 @@ impl FileBlock {
             None
         };
 
-        // TODO parse exttime
+        let mut creation_time = None;
+        let mut access_time = None;
+        let mut archive_time = None;
+
+        if flags.has_extended_time() {
+            let ext = ExtendedTime::read(reader, modification_time)?;
+
+            modification_time = ext.modification_time;
+            creation_time = ext.creation_time;
+            access_time = ext.access_time;
+            archive_time = ext.archive_time;
+        }
 
         Ok(FileBlock {
             packed_data_size,
@@ -323,6 +337,9 @@ impl FileBlock {
             host_os: host_os.into(),
             file_crc32,
             modification_time,
+            creation_time,
+            access_time,
+            archive_time,
             unpack_version,
             method,
             attributes,
@@ -342,8 +359,9 @@ pub struct ServiceBlock {
     pub host_os: HostOs,
     pub file_crc32: u32,
     pub modification_time: Result<time::PrimitiveDateTime, u32>,
-    pub creation_time: Option<time::PrimitiveDateTime>,
-    pub access_time: Option<time::PrimitiveDateTime>,
+    pub creation_time: Option<Result<time::PrimitiveDateTime, u32>>,
+    pub access_time: Option<Result<time::PrimitiveDateTime, u32>>,
+    pub archive_time: Option<Result<time::PrimitiveDateTime, u32>>,
     pub unpack_version: u8,
     pub method: u8,
     pub sub_flags: u32,
@@ -432,41 +450,15 @@ impl ServiceBlock {
 
         let mut creation_time = None;
         let mut access_time = None;
+        let mut archive_time = None;
 
         if flags.has_extended_time() {
-            let time_flags = read_u16(reader)?;
+            let ext = ExtendedTime::read(reader, modification_time)?;
 
-            let flags = ExtendedTimeFlags::shifted(time_flags, 3);
-            if flags.exists() {
-                if let Ok(mtime) = modification_time {
-                    let mtime = read_extended_time(reader, mtime, flags)?;
-                    modification_time = Ok(mtime)
-                } else if flags.precision() > 0 {
-                    read_vec(reader, flags.precision() as _)?;
-                }
-            }
-
-            let flags = ExtendedTimeFlags::shifted(time_flags, 2);
-            if flags.exists() {
-                let time = read_u32(reader)?;
-                let time = time_conv::parse_dos(time).map_err(|_| time);
-
-                if let Ok(time) = time {
-                    creation_time = Some(read_extended_time(reader, time, flags)?);
-                }
-            }
-
-            let flags = ExtendedTimeFlags::shifted(time_flags, 1);
-            if flags.exists() {
-                let time = read_u32(reader)?;
-                let time = time_conv::parse_dos(time).map_err(|_| time);
-
-                if let Ok(time) = time {
-                    access_time = Some(read_extended_time(reader, time, flags)?);
-                }
-            }
-
-            // unrar source says there's an archive time here but it's not used.
+            modification_time = ext.modification_time;
+            creation_time = ext.creation_time;
+            access_time = ext.access_time;
+            archive_time = ext.archive_time;
         }
 
         Ok(ServiceBlock {
@@ -478,6 +470,7 @@ impl ServiceBlock {
             modification_time,
             creation_time,
             access_time,
+            archive_time,
             unpack_version,
             method,
             sub_flags,
@@ -494,52 +487,6 @@ impl Deref for ServiceBlock {
     fn deref(&self) -> &Self::Target {
         &self.flags
     }
-}
-
-struct ExtendedTimeFlags(u16);
-
-impl ExtendedTimeFlags {
-    const EXISTS: u16 = 0x8;
-    const ADD_SECOND: u16 = 0x4;
-    const PRECISION_MASK: u16 = 0x3;
-
-    fn shifted(flags: u16, shift: u8) -> Self {
-        Self(flags >> (shift * 4))
-    }
-
-    fn exists(&self) -> bool {
-        self.0 & Self::EXISTS != 0
-    }
-
-    fn add_second(&self) -> bool {
-        self.0 & Self::ADD_SECOND != 0
-    }
-
-    fn precision(&self) -> u32 {
-        (self.0 & Self::PRECISION_MASK) as u32
-    }
-}
-
-fn read_extended_time<R: io::Read>(
-    reader: &mut R,
-    mut t: time::PrimitiveDateTime,
-    flags: ExtendedTimeFlags,
-) -> io::Result<time::PrimitiveDateTime> {
-    if flags.add_second() {
-        t = t.saturating_add(time::Duration::SECOND);
-    }
-
-    let precision = flags.precision();
-    let mut hundred_nanos = 0;
-
-    for i in 0..precision {
-        let byte = read_u8(reader)? as u32;
-        hundred_nanos |= byte << ((i + 3 - precision) * 8);
-    }
-
-    let nanos = hundred_nanos * 100;
-
-    Ok(t.saturating_add(time::Duration::nanoseconds(nanos as _)))
 }
 
 #[derive(Debug)]
