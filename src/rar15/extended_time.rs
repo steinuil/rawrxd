@@ -93,8 +93,8 @@ impl ExtendedTime {
         };
 
         let creation_time = read_extended_time(reader, ExtendedTimeFlags::shifted(all_flags, 2))?;
-        let access_time = read_extended_time(reader, ExtendedTimeFlags::shifted(all_flags, 2))?;
-        let archive_time = read_extended_time(reader, ExtendedTimeFlags::shifted(all_flags, 2))?;
+        let access_time = read_extended_time(reader, ExtendedTimeFlags::shifted(all_flags, 1))?;
+        let archive_time = read_extended_time(reader, ExtendedTimeFlags::shifted(all_flags, 0))?;
 
         Ok(ExtendedTime {
             modification_time,
