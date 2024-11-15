@@ -14,12 +14,12 @@ pub fn parse_dos(dos_time: u32) -> Result<time::PrimitiveDateTime, time::error::
     Ok(time::PrimitiveDateTime::new(date, time))
 }
 
-const ONE_SECOND_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
+const ONE_SECOND_NS: i128 = Duration::from_secs(1).as_nanos() as _;
 
 // Values from this StackOverflow answer
 // https://stackoverflow.com/questions/6161776/convert-windows-filetime-to-second-in-unix-linux
 const WINDOWS_TICK_NS: i128 = 100;
-const WINDOWS_EPOCH_DIFFERENCE: i128 = 11_644_473_600 * ONE_SECOND_NS as i128;
+const WINDOWS_EPOCH_DIFFERENCE: i128 = 11_644_473_600 * ONE_SECOND_NS;
 
 pub fn parse_windows_filetime(
     filetime: u64,

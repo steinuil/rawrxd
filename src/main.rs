@@ -1,9 +1,5 @@
 #[macro_use]
-mod int_enum;
-#[macro_use]
-mod flags;
-#[macro_use]
-mod parse_records;
+mod macros;
 pub mod compat;
 pub mod format;
 pub mod rar14;

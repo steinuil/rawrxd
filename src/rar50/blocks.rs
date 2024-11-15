@@ -887,29 +887,26 @@ flags! {
 }
 
 impl FileTimeRecord {
-    // Get ready for some extremely annoying code!
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let (flags, _) = read_vint(reader)?;
         let flags = FileTimeRecordFlags::new(flags as u8);
 
+        let mut modification_time = None;
+        let mut creation_time = None;
+        let mut access_time = None;
+
         if flags.uses_unix_time() {
-            let modification_time = if flags.has_modification_time() {
-                Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
-            } else {
-                None
-            };
+            if flags.has_modification_time() {
+                modification_time = Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
+            }
 
-            let creation_time = if flags.has_creation_time() {
-                Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
-            } else {
-                None
-            };
+            if flags.has_creation_time() {
+                creation_time = Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
+            }
 
-            let access_time = if flags.has_access_time() {
-                Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
-            } else {
-                None
-            };
+            if flags.has_access_time() {
+                access_time = Some(read_unix_time_sec(reader)?.map_err(|s| s as u64))
+            }
 
             if !flags.has_unix_time_nanoseconds() {
                 return Ok(FileTimeRecord {
@@ -919,26 +916,22 @@ impl FileTimeRecord {
                 });
             }
 
-            let modification_time = if let Some(t) = modification_time {
+            if let Some(t) = modification_time {
                 let nanos = read_u32(reader)? as i64;
-                Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
-            } else {
-                None
-            };
+                modification_time =
+                    Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+            }
 
-            let creation_time = if let Some(t) = creation_time {
+            if let Some(t) = creation_time {
                 let nanos = read_u32(reader)? as i64;
-                Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
-            } else {
-                None
-            };
+                creation_time =
+                    Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+            }
 
-            let access_time = if let Some(t) = access_time {
+            if let Some(t) = access_time {
                 let nanos = read_u32(reader)? as i64;
-                Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
-            } else {
-                None
-            };
+                access_time = Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+            }
 
             Ok(FileTimeRecord {
                 modification_time,
@@ -950,23 +943,17 @@ impl FileTimeRecord {
                 // TODO log warning
             }
 
-            let modification_time = if flags.has_modification_time() {
-                Some(read_windows_time(reader)?)
-            } else {
-                None
-            };
+            if flags.has_modification_time() {
+                modification_time = Some(read_windows_time(reader)?)
+            }
 
-            let creation_time = if flags.has_creation_time() {
-                Some(read_windows_time(reader)?)
-            } else {
-                None
-            };
+            if flags.has_creation_time() {
+                creation_time = Some(read_windows_time(reader)?)
+            }
 
-            let access_time = if flags.has_access_time() {
-                Some(read_windows_time(reader)?)
-            } else {
-                None
-            };
+            if flags.has_access_time() {
+                access_time = Some(read_windows_time(reader)?)
+            }
 
             Ok(FileTimeRecord {
                 modification_time,
@@ -1057,31 +1044,28 @@ impl UnixOwnerRecord {
         let (flags, _) = read_vint(reader)?;
         let flags = UnixOwnerRecordFlags::new(flags as u8);
 
-        let user_name = if flags.has_user_name() {
+        let mut user_name = None;
+        let mut group_name = None;
+        let mut user_id = None;
+        let mut group_id = None;
+
+        if flags.has_user_name() {
             let (size, _) = read_vint(reader)?;
-            Some(read_string(reader, size as usize)?)
-        } else {
-            None
-        };
+            user_name = Some(read_string(reader, size as usize)?)
+        }
 
-        let group_name = if flags.has_group_name() {
+        if flags.has_group_name() {
             let (size, _) = read_vint(reader)?;
-            Some(read_string(reader, size as usize)?)
-        } else {
-            None
-        };
+            group_name = Some(read_string(reader, size as usize)?)
+        }
 
-        let user_id = if flags.has_user_id() {
-            Some(read_vint(reader)?.0)
-        } else {
-            None
-        };
+        if flags.has_user_id() {
+            user_id = Some(read_vint(reader)?.0)
+        }
 
-        let group_id = if flags.has_group_id() {
-            Some(read_vint(reader)?.0)
-        } else {
-            None
-        };
+        if flags.has_group_id() {
+            group_id = Some(read_vint(reader)?.0)
+        }
 
         Ok(UnixOwnerRecord {
             user_name,
