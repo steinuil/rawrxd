@@ -1,9 +1,17 @@
-// RAR15 could have just encoded the filenames in UTF-8 but noooooo it has to come up
+// RAR15 could have just encoded the filenames in UTF-8 but noooooo it had to come up
 // with its own weird encoding. Thank you RAR!
-pub fn decode_file_name(file_name: Vec<u8>) -> Result<String, Vec<u8>> {
+pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
     let split_off_index = match file_name.iter().position(|c| c == &0) {
-        Some(i) => i,
+        // Nothing after the 0 byte
+        Some(i) if file_name.len() == i + 1 => {
+            file_name.pop();
+            return String::from_utf8(file_name).map_err(|e| e.into_bytes());
+        }
+
+        // You are safe from this mess
         None => return String::from_utf8(file_name).map_err(|e| e.into_bytes()),
+
+        Some(i) => i,
     };
 
     let name_size = split_off_index;
@@ -18,21 +26,15 @@ pub fn decode_file_name(file_name: Vec<u8>) -> Result<String, Vec<u8>> {
     let mut dec_pos = 0;
 
     let mut flags = 0;
-    let mut flag_bits = 0;
+    let mut counter = 0;
 
-    let high_byte = if enc_pos < enc_size {
-        let b = enc_name[enc_pos];
-        enc_pos += 1;
-        b as u32
-    } else {
-        0
-    };
+    let high_byte = enc_name[enc_pos] as u32;
+    enc_pos += 1;
 
     while enc_pos < enc_size {
-        if flag_bits == 0 {
+        if counter % 4 == 0 {
             flags = enc_name[enc_pos];
             enc_pos += 1;
-            flag_bits = 8;
         }
 
         if enc_pos >= enc_size {
@@ -108,14 +110,14 @@ pub fn decode_file_name(file_name: Vec<u8>) -> Result<String, Vec<u8>> {
         }
 
         flags <<= 2;
-        flag_bits -= 2;
+        counter += 1;
     }
 
     Ok(out_name)
 }
 
 #[test]
-fn test_decode_file_name() {
+fn test_decode_file_name_shift_jis() {
     let file_name = b"(\x88\xEA\x94\xCA\x83Q\x81[\x83\x80)\
                       [PC][DVD][050617] Ever17 -the out of infinity- PE DVD Edition(iso+mds)\
                       \\EVER17_DVD.iso\x00N\x1A(\x00,\x82\xB20\xA0\xFC0\xE00)[\x00PC]\
@@ -129,4 +131,11 @@ fn test_decode_file_name() {
         "(一般ゲーム)[PC][DVD][050617] Ever17 -the out of infinity- \
          PE DVD Edition(iso+mds)\\EVER17_DVD.iso"
     );
+}
+
+#[test]
+fn test_decode_file_name_with_0_byte_end() {
+    let file_name = b"test.rar\x00".to_vec();
+
+    assert_eq!(decode_file_name(file_name).unwrap(), "test.rar");
 }
