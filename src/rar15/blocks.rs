@@ -2,7 +2,7 @@ use std::{io, ops::Deref};
 
 use crate::{read::*, size::BlockSize, time_conv};
 
-use super::{extended_time::ExtendedTime, NAME_MAX_SIZE};
+use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
 
 #[derive(Debug)]
 pub struct Block {
@@ -219,6 +219,7 @@ impl From<u8> for EncryptionMethod {
 
 #[derive(Debug)]
 pub struct FileBlock {
+    pub flags: FileBlockFlags,
     pub packed_data_size: u64,
     pub unpacked_data_size: u64,
     pub host_os: HostOs,
@@ -299,7 +300,8 @@ impl FileBlock {
         };
 
         let file_name = if flags.is_filename_unicode() {
-            read_string(reader, name_size as usize)?
+            let name = read_vec(reader, name_size as usize)?;
+            decode_file_name(name)
         } else {
             // TODO decode the filename when it's not unicode.
             // On Unix it uses CharToWide, which is guaranteed to return garbage
@@ -332,6 +334,7 @@ impl FileBlock {
         }
 
         Ok(FileBlock {
+            flags,
             packed_data_size,
             unpacked_data_size,
             host_os: host_os.into(),
@@ -365,7 +368,7 @@ pub struct ServiceBlock {
     pub unpack_version: u8,
     pub method: u8,
     pub sub_flags: u32,
-    pub name: Vec<u8>,
+    pub name: Result<String, Vec<u8>>,
     pub sub_data: Option<Vec<u8>>,
     pub salt: Option<[u8; 8]>,
 }
@@ -429,7 +432,7 @@ impl ServiceBlock {
             (low_packed_data_size, low_unpacked_data_size)
         };
 
-        let name = read_vec(reader, name_size)?;
+        let name = read_string(reader, name_size)?;
 
         let sub_data_size = (header_size as usize)
             - name_size

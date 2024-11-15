@@ -1,5 +1,6 @@
 mod block_iterator;
 mod blocks;
+mod decode_file_name;
 mod extended_time;
 
 pub use block_iterator::*;
