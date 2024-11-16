@@ -243,8 +243,8 @@ flags! {
         /// The file size is larger than u32::MAX.
         pub(self) has_large_size = 0x0100;
 
-        /// Filename is in UTF-8 format.
-        pub(self) is_filename_unicode = 0x0200;
+        /// Filename contains bytecode to decode it to Unicode.
+        pub(self) has_unicode_filename = 0x0200;
 
         /// File is encrypted with salt.
         pub(self) has_salt = 0x0400;
@@ -299,7 +299,7 @@ impl FileBlock {
             (low_packed_data_size, low_unpacked_data_size)
         };
 
-        let file_name = if flags.is_filename_unicode() {
+        let file_name = if flags.has_unicode_filename() {
             let name = read_vec(reader, name_size as usize)?;
             decode_file_name(name)
         } else {

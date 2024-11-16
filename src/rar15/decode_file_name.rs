@@ -21,7 +21,7 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
 ///
 /// My theory is that a RAR-encoded filename contains the filename in its original non-unicode
 /// encoding terminated with a 0 byte, followed by instructions on how to convert the original
-/// encoding into Unicode without relying on conversion tables.
+/// encoding into UTF-16 without relying on conversion tables.
 /// I think it works this way to keep compatibility with older RAR versions that did not use
 /// this encoding scheme?
 ///
@@ -39,18 +39,13 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
 ///
 /// This structure repeats until the end of the bytecode section, which signals the end
 /// of the string.
-// TODO UnRAR uses a wstring as output, which is 32bit on Unix but 16bit on Windows.
-// Does this mean that this is actually decoding to UTF-16 rather than UTF-32?
 fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option<String> {
     let (original_filename, bytecode) = file_name.split_at(split_off_index);
     let mut bytecode = bytecode[1..].iter().copied().peekable();
 
-    // We need to know the number of chars we pushed to the string in a few cases,
-    // so we're using a Vec<char> instead of a String to avoid the O(N) cost
-    // of .chars().count().
     let mut out_name = vec![];
 
-    let high_byte = bytecode.next()? as u32;
+    let high_byte = (bytecode.next()? as u16) << 8;
 
     'outer: while bytecode.peek().is_some() {
         let instructions = bytecode.next()?;
@@ -64,18 +59,18 @@ fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option
 
             match instruction {
                 Instruction::Byte => {
-                    let char = bytecode.next()? as char;
+                    let char = bytecode.next()? as u16;
                     out_name.push(char)
                 }
                 Instruction::ByteWithHigh => {
-                    let low_char = bytecode.next()? as u32;
-                    let char = char::from_u32(low_char | (high_byte << 8))?;
+                    let low_char = bytecode.next()? as u16;
+                    let char = low_char | high_byte;
                     out_name.push(char)
                 }
                 Instruction::TwoBytes => {
-                    let low_char = bytecode.next()? as u32;
-                    let high_char = bytecode.next()? as u32;
-                    let char = char::from_u32(low_char | (high_char << 8))?;
+                    let low_char = bytecode.next()? as u16;
+                    let high_char = bytecode.next()? as u16;
+                    let char = low_char | (high_char << 8);
                     out_name.push(char)
                 }
                 Instruction::NameChunk => {
@@ -84,17 +79,17 @@ fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option
                     match CopyNameInstruction::new(length) {
                         CopyNameInstruction::Chunk(length) => {
                             for _ in 0..length {
-                                let char = *original_filename.get(out_name.len())? as char;
+                                let char = *original_filename.get(out_name.len())? as u16;
                                 out_name.push(char)
                             }
                         }
                         CopyNameInstruction::ChunkWithCorrection(length) => {
-                            let correction = bytecode.next()? as u32;
+                            let correction = bytecode.next()? as u16;
 
                             for _ in 0..length {
-                                let low_char = *original_filename.get(out_name.len())? as u32;
+                                let low_char = *original_filename.get(out_name.len())? as u16;
                                 let corrected_char = (low_char + correction) & 0xFF;
-                                let char = char::from_u32(corrected_char | (high_byte << 8))?;
+                                let char = corrected_char | high_byte;
                                 out_name.push(char)
                             }
                         }
@@ -104,7 +99,7 @@ fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option
         }
     }
 
-    Some(String::from_iter(out_name))
+    String::from_utf16(&out_name).ok()
 }
 
 #[derive(Debug)]
