@@ -20,10 +20,11 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
     let enc_name = &file_name[split_off_index + 1..];
     let enc_size = file_name.len() - split_off_index - 1;
 
-    let mut out_name = String::new();
+    // We need to know the number of chars we pushed to the string in a few cases,
+    // so we're using a Vec<char> instead of a String to avoid the O(N) cost of .chars().count().
+    let mut out_name = vec![];
 
     let mut enc_pos = 0;
-    let mut dec_pos = 0;
 
     let mut flags = 0;
     let mut counter = 0;
@@ -41,17 +42,15 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
             break;
         }
 
-        match flags >> 6 {
+        match (flags >> ((3 - (counter % 4)) * 2)) & 0x03 {
             0 => {
                 let char = enc_name[enc_pos] as char;
                 enc_pos += 1;
-                dec_pos += 1;
                 out_name.push(char);
             }
             1 => {
                 let char = char::from_u32(enc_name[enc_pos] as u32 + (high_byte << 8)).unwrap();
                 enc_pos += 1;
-                dec_pos += 1;
                 out_name.push(char);
             }
             2 => {
@@ -61,7 +60,6 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
                     )
                     .unwrap();
                     enc_pos += 2;
-                    dec_pos += 1;
                     out_name.push(char);
                 }
             }
@@ -76,44 +74,42 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
 
                         let mut length = (length & 0x7f) + 2;
                         loop {
-                            if !(length > 0 && dec_pos < name_size) {
+                            if !(length > 0 && out_name.len() < name_size) {
                                 break;
                             }
 
                             let char = char::from_u32(
-                                ((name[dec_pos] as u32 + correction) & 0xFF) + (high_byte << 8),
+                                ((name[out_name.len()] as u32 + correction) & 0xFF)
+                                    + (high_byte << 8),
                             )
                             .unwrap();
                             out_name.push(char);
 
                             length -= 1;
-                            dec_pos += 1;
                         }
                     }
                 } else {
                     let mut length = length + 2;
 
                     loop {
-                        if !(length > 0 && dec_pos < name_size) {
+                        if !(length > 0 && out_name.len() < name_size) {
                             break;
                         }
 
-                        let char = name[dec_pos] as char;
+                        let char = name[out_name.len()] as char;
                         out_name.push(char);
 
                         length -= 1;
-                        dec_pos += 1;
                     }
                 }
             }
             n => panic!("{n}"),
         }
 
-        flags <<= 2;
         counter += 1;
     }
 
-    Ok(out_name)
+    Ok(String::from_iter(out_name))
 }
 
 #[test]
