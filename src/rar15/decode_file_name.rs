@@ -47,9 +47,7 @@ fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option
 
     let high_byte = (bytecode.next()? as u16) << 8;
 
-    'outer: while bytecode.peek().is_some() {
-        let instructions = bytecode.next()?;
-
+    'outer: while let Some(instructions) = bytecode.next() {
         for i in 0..4 {
             if bytecode.peek().is_none() {
                 break 'outer;
