@@ -17,24 +17,46 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
     decode_rar_encoded_string(&file_name, split_off_index).ok_or(file_name)
 }
 
+/// Decode a RAR-encoded filename into a String.
+///
+/// My theory is that a RAR-encoded filename contains the filename in its original non-unicode
+/// encoding terminated with a 0 byte, followed by instructions on how to convert the original
+/// encoding into Unicode without relying on conversion tables.
+/// I think it works this way to keep compatibility with older RAR versions that did not use
+/// this encoding scheme?
+///
+/// # Implementation
+///
+/// A RAR-encoded string contains two sections separated by the first 0 byte found in the string.
+///
+/// The first section contains the filename in its original encoding.
+///
+/// The second contains bytecode for a decoding virtual machine.
+/// It begins with a "high byte" that is later used to escape some characters.
+/// Then there is a repeating structure of:
+/// - 1 byte containing 4 2-bit instructions in highest to lowest bit order.
+/// - The operands of the 4 instructions.
+///
+/// This structure repeats until the end of the bytecode section, which signals the end
+/// of the string.
 // TODO UnRAR uses a wstring as output, which is 32bit on Unix but 16bit on Windows.
 // Does this mean that this is actually decoding to UTF-16 rather than UTF-32?
 fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option<String> {
-    let (name, enc) = file_name.split_at(split_off_index);
-    let mut enc = enc[1..].iter().copied().peekable();
+    let (original_filename, bytecode) = file_name.split_at(split_off_index);
+    let mut bytecode = bytecode[1..].iter().copied().peekable();
 
     // We need to know the number of chars we pushed to the string in a few cases,
     // so we're using a Vec<char> instead of a String to avoid the O(N) cost
     // of .chars().count().
     let mut out_name = vec![];
 
-    let high_byte = enc.next()? as u32;
+    let high_byte = bytecode.next()? as u32;
 
-    'outer: while enc.peek().is_some() {
-        let instructions = enc.next()?;
+    'outer: while bytecode.peek().is_some() {
+        let instructions = bytecode.next()?;
 
         for i in 0..4 {
-            if enc.peek().is_none() {
+            if bytecode.peek().is_none() {
                 break 'outer;
             }
 
@@ -42,35 +64,35 @@ fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option
 
             match instruction {
                 Instruction::Byte => {
-                    let char = enc.next()? as char;
+                    let char = bytecode.next()? as char;
                     out_name.push(char)
                 }
                 Instruction::ByteWithHigh => {
-                    let low_char = enc.next()? as u32;
+                    let low_char = bytecode.next()? as u32;
                     let char = char::from_u32(low_char | (high_byte << 8))?;
                     out_name.push(char)
                 }
                 Instruction::TwoBytes => {
-                    let low_char = enc.next()? as u32;
-                    let high_char = enc.next()? as u32;
+                    let low_char = bytecode.next()? as u32;
+                    let high_char = bytecode.next()? as u32;
                     let char = char::from_u32(low_char | (high_char << 8))?;
                     out_name.push(char)
                 }
                 Instruction::NameChunk => {
-                    let length = enc.next()?;
+                    let length = bytecode.next()?;
 
-                    match LengthInstruction::new(length) {
-                        LengthInstruction::Chunk(length) => {
+                    match CopyNameInstruction::new(length) {
+                        CopyNameInstruction::Chunk(length) => {
                             for _ in 0..length {
-                                let char = *name.get(out_name.len())? as char;
+                                let char = *original_filename.get(out_name.len())? as char;
                                 out_name.push(char)
                             }
                         }
-                        LengthInstruction::ChunkWithCorrection(length) => {
-                            let correction = enc.next()? as u32;
+                        CopyNameInstruction::ChunkWithCorrection(length) => {
+                            let correction = bytecode.next()? as u32;
 
                             for _ in 0..length {
-                                let low_char = *name.get(out_name.len())? as u32;
+                                let low_char = *original_filename.get(out_name.len())? as u32;
                                 let corrected_char = (low_char + correction) & 0xFF;
                                 let char = char::from_u32(corrected_char | (high_byte << 8))?;
                                 out_name.push(char)
@@ -87,18 +109,17 @@ fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option
 
 #[derive(Debug)]
 enum Instruction {
-    /// Read the next byte from the encoded section.
+    /// Copy one byte from the encoded section.
     Byte,
 
-    /// Read the next byte from the encoded section and prefix it with the high byte.
+    /// Copy one byte from the encoded section and prefix it with the high byte.
     ByteWithHigh,
 
-    /// Read the next two bytes from the encoded section.
+    /// Copy two bytes from the encoded section.
     TwoBytes,
 
-    /// The next byte in the encoded section tells how many bytes to read from the
-    /// name section and whether to apply an additional correction byte from the
-    /// encoded section.
+    /// Copy a number of bytes from the name section.
+    /// This instruction may have one or two bytes of operands; see `CopyNameInstruction`.
     NameChunk,
 }
 
@@ -119,7 +140,7 @@ impl Instruction {
 }
 
 #[derive(Debug)]
-enum LengthInstruction {
+enum CopyNameInstruction {
     /// Read length + 2 characters from the name section.
     Chunk(u8),
 
@@ -129,7 +150,7 @@ enum LengthInstruction {
     ChunkWithCorrection(u8),
 }
 
-impl LengthInstruction {
+impl CopyNameInstruction {
     const HAS_CORRECTION: u8 = 0x80;
 
     fn new(length: u8) -> Self {
