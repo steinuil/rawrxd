@@ -1,5 +1,3 @@
-// RAR15 could have just encoded the filenames in UTF-8 but noooooo it had to come up
-// with its own weird encoding. Thank you RAR!
 pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
     let split_off_index = match file_name.iter().position(|c| c == &0) {
         // Nothing after the 0 byte
@@ -14,102 +12,133 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
         Some(i) => i,
     };
 
-    let name_size = split_off_index;
-    let name = &file_name[..split_off_index];
+    // RAR15 could have just encoded the filenames in UTF-8 but noooooo it had to come up
+    // with its own weird encoding. Thank you RAR!
+    decode_rar_encoded_string(&file_name, split_off_index).ok_or(file_name)
+}
 
-    let enc_name = &file_name[split_off_index + 1..];
-    let enc_size = file_name.len() - split_off_index - 1;
+// TODO UnRAR uses a wstring as output, which is 32bit on Unix but 16bit on Windows.
+// Does this mean that this is actually decoding to UTF-16 rather than UTF-32?
+fn decode_rar_encoded_string(file_name: &[u8], split_off_index: usize) -> Option<String> {
+    let (name, enc) = file_name.split_at(split_off_index);
+    let mut enc = enc[1..].iter().copied().peekable();
 
     // We need to know the number of chars we pushed to the string in a few cases,
-    // so we're using a Vec<char> instead of a String to avoid the O(N) cost of .chars().count().
+    // so we're using a Vec<char> instead of a String to avoid the O(N) cost
+    // of .chars().count().
     let mut out_name = vec![];
 
-    let mut enc_pos = 0;
+    let high_byte = enc.next()? as u32;
 
-    let mut flags = 0;
-    let mut counter = 0;
+    'outer: while enc.peek().is_some() {
+        let instructions = enc.next()?;
 
-    let high_byte = enc_name[enc_pos] as u32;
-    enc_pos += 1;
-
-    while enc_pos < enc_size {
-        if counter % 4 == 0 {
-            flags = enc_name[enc_pos];
-            enc_pos += 1;
-        }
-
-        if enc_pos >= enc_size {
-            break;
-        }
-
-        match (flags >> ((3 - (counter % 4)) * 2)) & 0x03 {
-            0 => {
-                let char = enc_name[enc_pos] as char;
-                enc_pos += 1;
-                out_name.push(char);
+        for i in 0..4 {
+            if enc.peek().is_none() {
+                break 'outer;
             }
-            1 => {
-                let char = char::from_u32(enc_name[enc_pos] as u32 + (high_byte << 8)).unwrap();
-                enc_pos += 1;
-                out_name.push(char);
-            }
-            2 => {
-                if enc_pos + 1 < enc_size {
-                    let char = char::from_u32(
-                        enc_name[enc_pos] as u32 + ((enc_name[enc_pos + 1] as u32) << 8),
-                    )
-                    .unwrap();
-                    enc_pos += 2;
-                    out_name.push(char);
+
+            let instruction = Instruction::new(instructions, i);
+
+            match instruction {
+                Instruction::Byte => {
+                    let char = enc.next()? as char;
+                    out_name.push(char)
                 }
-            }
-            3 => {
-                let length = enc_name[enc_pos];
-                enc_pos += 1;
+                Instruction::ByteWithHigh => {
+                    let low_char = enc.next()? as u32;
+                    let char = char::from_u32(low_char | (high_byte << 8))?;
+                    out_name.push(char)
+                }
+                Instruction::TwoBytes => {
+                    let low_char = enc.next()? as u32;
+                    let high_char = enc.next()? as u32;
+                    let char = char::from_u32(low_char | (high_char << 8))?;
+                    out_name.push(char)
+                }
+                Instruction::NameChunk => {
+                    let length = enc.next()?;
 
-                if length & 0x80 != 0 {
-                    if enc_pos < enc_size {
-                        let correction = enc_name[enc_pos] as u32;
-                        enc_pos += 1;
-
-                        let mut length = (length & 0x7f) + 2;
-                        loop {
-                            if !(length > 0 && out_name.len() < name_size) {
-                                break;
+                    match LengthInstruction::new(length) {
+                        LengthInstruction::Chunk(length) => {
+                            for _ in 0..length {
+                                let char = *name.get(out_name.len())? as char;
+                                out_name.push(char)
                             }
-
-                            let char = char::from_u32(
-                                ((name[out_name.len()] as u32 + correction) & 0xFF)
-                                    + (high_byte << 8),
-                            )
-                            .unwrap();
-                            out_name.push(char);
-
-                            length -= 1;
                         }
-                    }
-                } else {
-                    let mut length = length + 2;
+                        LengthInstruction::ChunkWithCorrection(length) => {
+                            let correction = enc.next()? as u32;
 
-                    loop {
-                        if !(length > 0 && out_name.len() < name_size) {
-                            break;
+                            for _ in 0..length {
+                                let low_char = *name.get(out_name.len())? as u32;
+                                let corrected_char = (low_char + correction) & 0xFF;
+                                let char = char::from_u32(corrected_char | (high_byte << 8))?;
+                                out_name.push(char)
+                            }
                         }
-
-                        let char = name[out_name.len()] as char;
-                        out_name.push(char);
-
-                        length -= 1;
                     }
                 }
             }
-            n => panic!("{n}"),
         }
-
-        counter += 1;
     }
 
-    Ok(String::from_iter(out_name))
+    Some(String::from_iter(out_name))
+}
+
+#[derive(Debug)]
+enum Instruction {
+    /// Read the next byte from the encoded section.
+    Byte,
+
+    /// Read the next byte from the encoded section and prefix it with the high byte.
+    ByteWithHigh,
+
+    /// Read the next two bytes from the encoded section.
+    TwoBytes,
+
+    /// The next byte in the encoded section tells how many bytes to read from the
+    /// name section and whether to apply an additional correction byte from the
+    /// encoded section.
+    NameChunk,
+}
+
+impl Instruction {
+    fn new(instructions: u8, pos: u8) -> Self {
+        // Decode instructions are stored in 2 bit chunks in highest to lowest bit order.
+        let shift = (3 - pos) * 2;
+        let instruction = (instructions >> shift) & 0x3;
+
+        match instruction {
+            0 => Self::Byte,
+            1 => Self::ByteWithHigh,
+            2 => Self::TwoBytes,
+            3 => Self::NameChunk,
+            _ => unreachable!("should not happen since flags has been masked with 3"),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum LengthInstruction {
+    /// Read length + 2 characters from the name section.
+    Chunk(u8),
+
+    /// Read (length & !0x80) characters from the name section;
+    /// the next byte in the encoded section contains a correction which needs
+    /// to be added to the characters from the name section, along with the high byte.
+    ChunkWithCorrection(u8),
+}
+
+impl LengthInstruction {
+    const HAS_CORRECTION: u8 = 0x80;
+
+    fn new(length: u8) -> Self {
+        if length & Self::HAS_CORRECTION != 0 {
+            Self::ChunkWithCorrection(length & !Self::HAS_CORRECTION)
+        } else {
+            Self::Chunk(length + 2)
+        }
+    }
 }
 
 #[test]
