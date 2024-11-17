@@ -110,8 +110,7 @@ pub enum BlockKind {
 #[derive(Debug)]
 pub struct MainBlock {
     pub flags: MainBlockFlags,
-    pub high_pos_av: u16,
-    pub pos_av: u32,
+    pub av_block_offset: Option<u64>,
     pub encrypt_version: Option<u8>,
 }
 
@@ -159,8 +158,10 @@ impl MainBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = MainBlockFlags::new(flags);
 
-        let high_pos_av = read_u16(reader)?;
-        let pos_av = read_u32(reader)?;
+        let high_pos_av = read_u16(reader)? as u64;
+        let low_pos_av = read_u32(reader)? as u64;
+        let pos_av = low_pos_av | (high_pos_av << 16);
+        let av_block_offset = if pos_av == 0 { None } else { Some(pos_av) };
 
         // This is not even read in newer versions of unrar
         let encrypt_version = if flags.has_encrypt_version() {
@@ -172,8 +173,7 @@ impl MainBlock {
 
         Ok(MainBlock {
             flags,
-            high_pos_av,
-            pos_av,
+            av_block_offset,
             encrypt_version,
         })
     }
@@ -367,7 +367,7 @@ pub struct ServiceBlock {
     pub archive_time: Option<Result<time::PrimitiveDateTime, u32>>,
     pub unpack_version: u8,
     pub method: u8,
-    pub sub_flags: u32,
+    pub sub_flags: SubHeadFlags,
     pub name: Result<String, Vec<u8>>,
     pub sub_data: Option<Vec<u8>>,
     pub salt: Option<[u8; 8]>,
@@ -418,7 +418,9 @@ impl ServiceBlock {
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let name_size = read_u16(reader)? as usize;
+
         let sub_flags = read_u32(reader)?;
+        let sub_flags = SubHeadFlags::new(sub_flags);
 
         let (packed_data_size, unpacked_data_size) = if flags.has_large_size() {
             let high_packed_data_size = read_u32(reader)? as u64;
@@ -489,6 +491,15 @@ impl Deref for ServiceBlock {
 
     fn deref(&self) -> &Self::Target {
         &self.flags
+    }
+}
+
+flags! {
+    pub struct SubHeadFlags(u32) {
+        pub is_inherited = 0x80000000;
+
+        // SUBHEAD_FLAGS_CMT_UNICODE
+        pub is_comment_unicode = 0x01;
     }
 }
 
