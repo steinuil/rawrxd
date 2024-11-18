@@ -10,7 +10,6 @@ fn main() -> io::Result<()> {
         process::exit(1);
     };
     let f = fs::File::open(&filename)?;
-    let file_len = f.metadata()?.len();
     let mut f = io::BufReader::new(f);
 
     let Some((format, offset)) = Signature::search_stream(&mut f)? else {
@@ -24,7 +23,7 @@ fn main() -> io::Result<()> {
 
     match format {
         Signature::Rar14 => {
-            let block_reader = rar14::BlockIterator::new(f, offset, file_len)?;
+            let block_reader = rar14::BlockIterator::new(f, offset)?;
 
             for block in block_reader {
                 let block = block?;
@@ -32,7 +31,7 @@ fn main() -> io::Result<()> {
             }
         }
         Signature::Rar15 => {
-            let block_reader = rar15::BlockIterator::new(f, offset, file_len)?;
+            let block_reader = rar15::BlockIterator::new(f, offset)?;
 
             for block in block_reader {
                 let block = block?;
@@ -40,7 +39,7 @@ fn main() -> io::Result<()> {
             }
         }
         Signature::Rar50 => {
-            let block_reader = rar50::BlockIterator::new(f, offset, file_len)?;
+            let block_reader = rar50::BlockIterator::new(f, offset)?;
 
             for block in block_reader {
                 let block = block?;

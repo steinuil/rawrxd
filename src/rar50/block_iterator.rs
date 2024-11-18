@@ -13,7 +13,9 @@ pub struct BlockIterator<R: io::Read + io::Seek> {
 }
 
 impl<R: io::Read + io::Seek> BlockIterator<R> {
-    pub fn new(reader: R, offset: u64, file_size: u64) -> io::Result<Self> {
+    pub fn new(mut reader: R, offset: u64) -> io::Result<Self> {
+        let file_size = reader.seek(io::SeekFrom::End(0))?;
+
         Ok(Self {
             reader,
             file_size,
