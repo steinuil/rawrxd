@@ -1,16 +1,22 @@
-use std::{fs, io::BufReader};
+use std::{fs, io, process};
 
 use rawrxd::{rar14, rar15, rar50, signature::Signature};
 
-fn main() {
+fn main() -> io::Result<()> {
     let mut args = std::env::args();
 
-    let filename = args.nth(1).unwrap();
-    let f = fs::File::open(&filename).unwrap();
-    let file_len = f.metadata().unwrap().len();
-    let mut f = BufReader::new(f);
+    let Some(filename) = args.nth(1) else {
+        eprintln!("No filename specified");
+        process::exit(1);
+    };
+    let f = fs::File::open(&filename)?;
+    let file_len = f.metadata()?.len();
+    let mut f = io::BufReader::new(f);
 
-    let (format, offset) = Signature::search_stream(&mut f).unwrap().unwrap();
+    let Some((format, offset)) = Signature::search_stream(&mut f)? else {
+        eprintln!("RAR signature not found");
+        process::exit(1);
+    };
 
     println!("{:?}", (format, offset));
 
@@ -18,28 +24,30 @@ fn main() {
 
     match format {
         Signature::Rar14 => {
-            let block_reader = rar14::BlockIterator::new(f, offset, file_len).unwrap();
+            let block_reader = rar14::BlockIterator::new(f, offset, file_len)?;
 
             for block in block_reader {
-                let block = block.unwrap();
+                let block = block?;
                 println!("{block:#?}");
             }
         }
         Signature::Rar15 => {
-            let block_reader = rar15::BlockIterator::new(f, offset, file_len).unwrap();
+            let block_reader = rar15::BlockIterator::new(f, offset, file_len)?;
 
             for block in block_reader {
-                let block = block.unwrap();
+                let block = block?;
                 println!("{block:#?}");
             }
         }
         Signature::Rar50 => {
-            let block_reader = rar50::BlockIterator::new(f, offset, file_len).unwrap();
+            let block_reader = rar50::BlockIterator::new(f, offset, file_len)?;
 
             for block in block_reader {
-                let block = block.unwrap();
+                let block = block?;
                 println!("{block:#?}");
             }
         }
     }
+
+    Ok(())
 }
