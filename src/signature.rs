@@ -59,7 +59,7 @@ impl Signature {
     /// can also be constructed as a *SFX* (self-extracting archive) which embed the binary
     /// needed to extract the archive before the archive itself. This binary may have a size up to
     /// `MAX_SFX_SIZE`, so we need to search for the signature within these bounds.
-    pub fn search_stream<T: io::Read>(reader: T) -> Result<Option<(Self, u64)>, io::Error> {
+    pub fn search_stream<R: io::Read>(reader: R) -> Result<Option<(Self, u64)>, io::Error> {
         let patterns = [&Self::RAR14[..], &Self::RAR15[..], &Self::RAR50[..]];
 
         let Ok(ac) = AhoCorasick::new(patterns) else {
