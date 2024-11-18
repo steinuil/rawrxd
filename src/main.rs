@@ -1,18 +1,20 @@
 #[macro_use]
 mod macros;
 pub mod compat;
-pub mod format;
 pub mod rar14;
 pub mod rar15;
 pub mod rar50;
-pub mod rar_file;
 mod read;
+pub mod signature;
 mod size;
 mod time_conv;
 
-use std::{fs, io::BufReader};
+use std::{
+    fs,
+    io::{BufReader, Seek, SeekFrom},
+};
 
-use format::Format;
+use signature::Signature;
 
 fn main() {
     let mut args = std::env::args();
@@ -22,13 +24,14 @@ fn main() {
     let file_len = f.metadata().unwrap().len();
     let mut f = BufReader::new(f);
 
-    let format = rar_file::read_signature(&mut f).unwrap().unwrap();
+    let (format, offset) = signature::search_signature(&mut f).unwrap().unwrap();
 
-    println!("format: {:?}", format);
-    println!();
+    println!("{:?}", (format, offset));
+
+    f.seek(SeekFrom::Start(offset + format.size())).unwrap();
 
     match format {
-        Format::Rar14 => {
+        Signature::Rar14 => {
             let block_reader = rar14::BlockIterator::new(f, file_len).unwrap();
 
             for block in block_reader {
@@ -36,7 +39,7 @@ fn main() {
                 println!("{block:#?}");
             }
         }
-        Format::Rar15 => {
+        Signature::Rar15 => {
             let block_reader = rar15::BlockIterator::new(f, file_len).unwrap();
 
             for block in block_reader {
@@ -44,7 +47,7 @@ fn main() {
                 println!("{block:#?}");
             }
         }
-        Format::Rar50 => {
+        Signature::Rar50 => {
             let block_reader = rar50::BlockIterator::new(f, file_len).unwrap();
 
             for block in block_reader {
