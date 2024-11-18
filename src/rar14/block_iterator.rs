@@ -33,7 +33,7 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
             Block::File(FileBlock::read(&mut self.reader)?)
         };
 
-        self.next_offset = block.offset() + block.full_size();
+        self.next_offset = block.offset() + block.size();
 
         Ok(block)
     }

@@ -27,7 +27,7 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
 
         let block = Block::read(&mut self.reader)?;
 
-        self.next_offset = block.offset() + block.full_size();
+        self.next_offset = block.offset() + block.size();
 
         if let BlockKind::EndArchive(_) = block.kind {
             self.end_of_archive_reached = true;
