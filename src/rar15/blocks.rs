@@ -387,7 +387,7 @@ pub struct ServiceBlock {
     pub unpack_version: u8,
     pub method: u8,
     pub sub_flags: SubHeadFlags,
-    pub name: Result<String, Vec<u8>>,
+    pub kind: ServiceBlockKind,
     pub sub_data: Option<Vec<u8>>,
     pub salt: Option<[u8; 8]>,
 }
@@ -414,6 +414,47 @@ flags! {
         // like the one in RAR5 blocks?
         pub has_extra_area = 0x2000;
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceBlockType {
+    Comment,
+    NtfsFilePermissions,
+    NtfsAlternateDataStream,
+    UnixOwner,
+    AuthenticationVerification,
+    RecoveryRecord,
+    Os2ExtendedAttributes,
+    BeOsExtendedAttributes,
+}
+
+impl ServiceBlockType {
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        match bytes {
+            b"CMT" => Some(Self::Comment),
+            b"ACL" => Some(Self::NtfsFilePermissions),
+            b"STM" => Some(Self::NtfsAlternateDataStream),
+            b"UOW" => Some(Self::UnixOwner),
+            b"AV" => Some(Self::AuthenticationVerification),
+            b"RR" => Some(Self::RecoveryRecord),
+            b"EA2" => Some(Self::Os2ExtendedAttributes),
+            b"EABE" => Some(Self::BeOsExtendedAttributes),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ServiceBlockKind {
+    Comment,
+    NtfsFilePermissions,
+    NtfsAlternateDataStream,
+    UnixOwner,
+    AuthenticationVerification,
+    RecoveryRecord,
+    Os2ExtendedAttributes,
+    BeOsExtendedAttributes,
+    Unknown(Vec<u8>),
 }
 
 impl ServiceBlock {
@@ -453,7 +494,26 @@ impl ServiceBlock {
             (low_packed_data_size, low_unpacked_data_size)
         };
 
-        let name = read_string(reader, name_size)?;
+        let kind = read_vec(reader, name_size)?;
+        let kind = match ServiceBlockType::from_bytes(&kind) {
+            Some(ServiceBlockType::Comment) => ServiceBlockKind::Comment,
+            Some(ServiceBlockType::NtfsFilePermissions) => ServiceBlockKind::NtfsFilePermissions,
+            Some(ServiceBlockType::NtfsAlternateDataStream) => {
+                ServiceBlockKind::NtfsAlternateDataStream
+            }
+            Some(ServiceBlockType::UnixOwner) => ServiceBlockKind::UnixOwner,
+            Some(ServiceBlockType::AuthenticationVerification) => {
+                ServiceBlockKind::AuthenticationVerification
+            }
+            Some(ServiceBlockType::RecoveryRecord) => ServiceBlockKind::RecoveryRecord,
+            Some(ServiceBlockType::Os2ExtendedAttributes) => {
+                ServiceBlockKind::Os2ExtendedAttributes
+            }
+            Some(ServiceBlockType::BeOsExtendedAttributes) => {
+                ServiceBlockKind::BeOsExtendedAttributes
+            }
+            None => ServiceBlockKind::Unknown(kind),
+        };
 
         let sub_data_size = (header_size as usize)
             - name_size
@@ -498,7 +558,7 @@ impl ServiceBlock {
             unpack_version,
             method,
             sub_flags,
-            name,
+            kind,
             sub_data,
             salt,
         })
@@ -588,9 +648,9 @@ int_enum! {
         // BEEA_HEAD
         BeOsExtendedAttributes = 0x103,
         // NTACL_HEAD
-        NtfsAcl = 0x104,
+        NtfsFilePermissions = 0x104,
         // STREAM_HEAD
-        NtfsStream = 0x105,
+        NtfsAlternateDataStream = 0x105,
     }
 }
 
@@ -735,12 +795,12 @@ impl SubBlock {
                     ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::BeOs)?;
                 SubBlockKind::ExtendedAttributes(sub_block)
             }
-            SubBlockType::NtfsAcl => {
+            SubBlockType::NtfsFilePermissions => {
                 let sub_block =
                     ExtendedAttributesSubBlock::read(reader, ExtendedAttributesFs::Ntfs)?;
                 SubBlockKind::ExtendedAttributes(sub_block)
             }
-            SubBlockType::NtfsStream => {
+            SubBlockType::NtfsAlternateDataStream => {
                 let sub_block = NtfsStreamSubBlock::read(reader)?;
                 SubBlockKind::NtfsStream(sub_block)
             }
