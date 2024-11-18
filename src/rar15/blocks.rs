@@ -290,7 +290,7 @@ impl FileBlock {
 
         let low_packed_data_size = read_u32(reader)? as u64;
         let low_unpacked_data_size = read_u32(reader)? as u64;
-        let host_os = read_u8(reader)?;
+        let host_os = read_u8(reader)?.into();
         let file_crc32 = read_u32(reader)?;
         let modification_time = read_u32(reader)?;
         let mut modification_time =
@@ -356,7 +356,7 @@ impl FileBlock {
             flags,
             packed_data_size,
             unpacked_data_size,
-            host_os: host_os.into(),
+            host_os,
             file_crc32,
             modification_time,
             creation_time,
@@ -470,7 +470,7 @@ impl ServiceBlock {
 
         let low_packed_data_size = read_u32(reader)? as u64;
         let low_unpacked_data_size = read_u32(reader)? as u64;
-        let host_os = read_u8(reader)?;
+        let host_os = read_u8(reader)?.into();
         let file_crc32 = read_u32(reader)?;
         let modification_time = read_u32(reader)?;
         let mut modification_time =
@@ -549,7 +549,7 @@ impl ServiceBlock {
             flags,
             packed_data_size,
             unpacked_data_size,
-            host_os: host_os.into(),
+            host_os,
             file_crc32,
             modification_time,
             creation_time,
