@@ -2,8 +2,6 @@ use std::{io, ops::Deref};
 
 use crate::{read::*, size::BlockSize, time_conv};
 
-use super::helpers::conv_dos_filename;
-
 #[derive(Debug)]
 pub enum Block {
     Main(MainBlock),
@@ -179,7 +177,7 @@ pub struct FileBlock {
     pub comment: Option<Vec<u8>>,
 
     /// Filename of the file.
-    pub name: String,
+    pub name: Filename,
 }
 
 flags! {
@@ -196,6 +194,19 @@ flags! {
         /// File header contains comment
         pub has_comment = 0x08;
     }
+}
+
+#[derive(Debug)]
+pub enum Filename {
+    /// Filename only contains characters in the ASCII range and can be safely
+    /// decoded into UTF-8.
+    Ascii(String),
+
+    /// Filename was encoded using the current OEM code page and cannot be decoded
+    /// correctly on its own. The user must select an encoding and use
+    /// [`encoding_rs`](https://crates.io/crates/encoding_rs) or
+    /// [`oem_cp`](https://crates.io/crates/oem_cp) to decode it correctly.
+    Oem(Vec<u8>),
 }
 
 impl FileBlock {
@@ -230,9 +241,16 @@ impl FileBlock {
         };
 
         let name = read_vec(reader, name_size)?;
-        // Assumes that RAR 1.4 archives were only created on DOS (because that's the
-        // only platform RAR 1.4 ran on, AFAIK), so we only need to handle DOS filenames.
-        let name = conv_dos_filename(name);
+
+        let name = if name.is_ascii() {
+            let Ok(name) = String::from_utf8(name) else {
+                unreachable!("we already checked that all characters are in the ASCII range");
+            };
+
+            Filename::Ascii(name)
+        } else {
+            Filename::Oem(name)
+        };
 
         Ok(FileBlock {
             offset,
