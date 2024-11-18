@@ -1,5 +1,5 @@
 pub trait BlockSize {
-    fn position(&self) -> u64;
+    fn offset(&self) -> u64;
 
     fn header_size(&self) -> u64;
 

@@ -14,11 +14,11 @@ pub enum HashKind {
 }
 
 impl BlockSize for Block {
-    fn position(&self) -> u64 {
+    fn offset(&self) -> u64 {
         match self {
-            Block::Rar14(b) => b.position(),
-            Block::Rar15(b) => b.position(),
-            Block::Rar50(b) => b.position(),
+            Block::Rar14(b) => b.offset(),
+            Block::Rar15(b) => b.offset(),
+            Block::Rar50(b) => b.offset(),
         }
     }
 

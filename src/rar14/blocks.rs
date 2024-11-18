@@ -11,10 +11,10 @@ pub enum Block {
 }
 
 impl BlockSize for Block {
-    fn position(&self) -> u64 {
+    fn offset(&self) -> u64 {
         match self {
-            Block::Main(b) => b.position(),
-            Block::File(b) => b.position(),
+            Block::Main(b) => b.offset(),
+            Block::File(b) => b.offset(),
         }
     }
 
@@ -37,10 +37,10 @@ impl BlockSize for Block {
 /// The main block is located right after the RAR 1.4 file signature
 /// and contains metadata for the whole archive.
 pub struct MainBlock {
-    /// Position in the file of this block.
-    pub position: u64,
+    /// Offset of this block in the file.
+    pub offset: u64,
 
-    /// Full size of the header from `position`.
+    /// Full size of the header from `offset`.
     pub header_size: u16,
 
     /// Main block header flags.
@@ -73,14 +73,14 @@ impl MainBlock {
     const HEADER_FIELDS_SIZE: u64 = 3;
 
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
-        let position = reader.stream_position()?;
+        let offset = reader.stream_position()?;
 
         let header_size = read_u16(reader)? - Self::SIGNATURE_SIZE;
         let flags = read_u8(reader)?;
         let flags = MainBlockFlags::new(flags);
 
         Ok(MainBlock {
-            position,
+            offset,
             header_size,
             flags,
         })
@@ -94,9 +94,7 @@ impl MainBlock {
             return Ok(None);
         }
 
-        reader.seek(io::SeekFrom::Start(
-            self.position + Self::HEADER_FIELDS_SIZE,
-        ))?;
+        reader.seek(io::SeekFrom::Start(self.offset + Self::HEADER_FIELDS_SIZE))?;
 
         let size = read_u16(reader)? as usize;
 
@@ -133,8 +131,8 @@ impl Deref for MainBlock {
 }
 
 impl BlockSize for MainBlock {
-    fn position(&self) -> u64 {
-        self.position
+    fn offset(&self) -> u64 {
+        self.offset
     }
 
     fn header_size(&self) -> u64 {
@@ -148,10 +146,10 @@ impl BlockSize for MainBlock {
 
 #[derive(Debug)]
 pub struct FileBlock {
-    /// Position in the file of this block.
-    pub position: u64,
+    /// Offset of this block in the file.
+    pub offset: u64,
 
-    /// Full size of the header from `position`.
+    /// Full size of the header from `offset`.
     pub header_size: u16,
 
     /// File block header flags.
@@ -202,7 +200,7 @@ flags! {
 
 impl FileBlock {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<FileBlock> {
-        let position = reader.stream_position()?;
+        let offset = reader.stream_position()?;
 
         let packed_data_size = read_u32(reader)?;
         let unpacked_data_size = read_u32(reader)?;
@@ -237,7 +235,7 @@ impl FileBlock {
         let name = conv_dos_filename(name);
 
         Ok(FileBlock {
-            position,
+            offset,
             header_size,
             flags,
             packed_data_size,
@@ -262,8 +260,8 @@ impl Deref for FileBlock {
 }
 
 impl BlockSize for FileBlock {
-    fn position(&self) -> u64 {
-        self.position
+    fn offset(&self) -> u64 {
+        self.offset
     }
 
     fn header_size(&self) -> u64 {

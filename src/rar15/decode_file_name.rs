@@ -117,9 +117,9 @@ enum Instruction {
 }
 
 impl Instruction {
-    fn new(instructions: u8, pos: u8) -> Self {
+    fn new(instructions: u8, offset: u8) -> Self {
         // Decode instructions are stored in 2 bit chunks in highest to lowest bit order.
-        let shift = (3 - pos) * 2;
+        let shift = (3 - offset) * 2;
         let instruction = (instructions >> shift) & 0x3;
 
         match instruction {

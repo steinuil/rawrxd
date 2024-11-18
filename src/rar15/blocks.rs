@@ -6,7 +6,7 @@ use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAM
 
 #[derive(Debug)]
 pub struct Block {
-    pub position: u64,
+    pub offset: u64,
     pub header_crc16: u16,
     pub flags: CommonFlags,
     pub header_size: u16,
@@ -36,7 +36,7 @@ impl Block {
     const ENDARC: u8 = 0x7b;
 
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
-        let position = reader.stream_position()?;
+        let offset = reader.stream_position()?;
 
         let header_crc16 = read_u16(reader)?;
         let block_type = read_u8(reader)?;
@@ -59,7 +59,7 @@ impl Block {
         };
 
         Ok(Block {
-            position,
+            offset,
             header_crc16,
             flags: common_flags,
             header_size,
@@ -69,8 +69,8 @@ impl Block {
 }
 
 impl BlockSize for Block {
-    fn position(&self) -> u64 {
-        self.position
+    fn offset(&self) -> u64 {
+        self.offset
     }
 
     fn header_size(&self) -> u64 {
@@ -158,10 +158,14 @@ impl MainBlock {
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = MainBlockFlags::new(flags);
 
-        let high_pos_av = read_u16(reader)? as u64;
-        let low_pos_av = read_u32(reader)? as u64;
-        let pos_av = low_pos_av | (high_pos_av << 16);
-        let av_block_offset = if pos_av == 0 { None } else { Some(pos_av) };
+        let high_av_offset = read_u16(reader)? as u64;
+        let low_av_offset = read_u32(reader)? as u64;
+        let av_offset = low_av_offset | (high_av_offset << 16);
+        let av_block_offset = if av_offset == 0 {
+            None
+        } else {
+            Some(av_offset)
+        };
 
         // This is not even read in newer versions of unrar
         let encrypt_version = if flags.has_encrypt_version() {

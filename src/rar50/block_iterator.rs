@@ -8,7 +8,7 @@ use super::{Block, BlockKind};
 pub struct BlockIterator<R: io::Read + io::Seek> {
     reader: R,
     file_size: u64,
-    next_block_position: u64,
+    next_offset: u64,
     end_of_archive_reached: bool,
 }
 
@@ -17,18 +17,17 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
         Ok(Self {
             reader,
             file_size,
-            next_block_position: offset,
+            next_offset: offset,
             end_of_archive_reached: false,
         })
     }
 
     fn read_block(&mut self) -> io::Result<Block> {
-        self.reader
-            .seek(io::SeekFrom::Start(self.next_block_position))?;
+        self.reader.seek(io::SeekFrom::Start(self.next_offset))?;
 
         let block = Block::read(&mut self.reader)?;
 
-        self.next_block_position = block.position() + block.full_size();
+        self.next_offset = block.offset() + block.full_size();
 
         if let BlockKind::EndArchive(_) = block.kind {
             self.end_of_archive_reached = true;
@@ -46,7 +45,7 @@ impl<R: io::Read + io::Seek> Iterator for BlockIterator<R> {
             return None;
         }
 
-        if self.next_block_position == self.file_size {
+        if self.next_offset == self.file_size {
             return None;
         }
 

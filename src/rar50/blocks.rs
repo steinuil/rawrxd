@@ -6,7 +6,7 @@ use super::{helpers::*, record_iterator::*, MAX_PATH_SIZE};
 
 #[derive(Debug)]
 pub struct Block {
-    pub position: u64,
+    pub offset: u64,
     pub flags: CommonFlags,
     pub header_crc32: u32,
     pub header_size: u64,
@@ -64,7 +64,7 @@ impl Block {
     const ENDARC: u64 = 0x05;
 
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
-        let position = reader.stream_position()?;
+        let offset = reader.stream_position()?;
 
         let header_crc32 = read_u32(reader)?;
 
@@ -100,7 +100,7 @@ impl Block {
         };
 
         Ok(Block {
-            position,
+            offset,
             flags,
             header_crc32,
             header_size: full_header_size,
@@ -120,8 +120,8 @@ impl Deref for Block {
 }
 
 impl BlockSize for Block {
-    fn position(&self) -> u64 {
-        self.position
+    fn offset(&self) -> u64 {
+        self.offset
     }
 
     fn header_size(&self) -> u64 {
