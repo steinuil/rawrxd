@@ -13,14 +13,12 @@ pub struct BlockIterator<R: io::Read + io::Seek> {
 }
 
 impl<R: io::Read + io::Seek> BlockIterator<R> {
-    pub(crate) fn new(mut reader: R, file_size: u64) -> io::Result<Self> {
-        let next_block_position = reader.stream_position()?;
-
+    pub fn new(reader: R, offset: u64, file_size: u64) -> io::Result<Self> {
         Ok(Self {
             reader,
             file_size,
             has_read_main_block: false,
-            next_block_position,
+            next_block_position: offset,
         })
     }
 

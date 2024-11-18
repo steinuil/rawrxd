@@ -27,13 +27,13 @@ impl Signature {
 
     pub const fn signature(&self) -> &'static [u8] {
         match self {
-            Signature::Rar14 => RAR14,
-            Signature::Rar15 => RAR15,
-            Signature::Rar50 => RAR50,
+            Self::Rar14 => RAR14,
+            Self::Rar15 => RAR15,
+            Self::Rar50 => RAR50,
         }
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Option<Signature> {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.starts_with(RAR14) {
             Some(Self::Rar14)
         } else if bytes.starts_with(RAR15) {
@@ -44,48 +44,36 @@ impl Signature {
             None
         }
     }
-}
 
-pub fn read_signature<T: io::Read + io::Seek>(
-    reader: &mut T,
-) -> Result<Option<Signature>, io::Error> {
-    let position = reader.stream_position()?;
+    pub fn from_stream_start<R: io::Read>(reader: &mut R) -> Result<Option<Self>, io::Error> {
+        let marker: [u8; 8] = read_const_bytes(reader)?;
+        Ok(Signature::from_bytes(&marker))
+    }
 
-    let marker: [u8; 8] = read_const_bytes(reader)?;
+    pub const MAX_SFX_SIZE: usize = 0x200000;
 
-    let Some(format) = Signature::from_bytes(&marker) else {
-        return Ok(None);
-    };
+    pub fn search_stream<T: io::Read>(reader: &mut T) -> Result<Option<(Self, u64)>, io::Error> {
+        let patterns = [&RAR14[..], &RAR15[..], &RAR50[..]];
 
-    reader.seek(io::SeekFrom::Start(position + format.size()))?;
-    Ok(Some(format))
-}
+        let Ok(ac) = AhoCorasick::new(patterns) else {
+            unreachable!()
+        };
 
-pub const MAX_SFX_SIZE: usize = 0x200000;
+        match ac.stream_find_iter(reader).next() {
+            None => Ok(None),
+            Some(Err(e)) => Err(e),
+            Some(Ok(m)) => {
+                let start = m.start();
 
-pub fn search_signature<T: io::Read>(
-    reader: &mut T,
-) -> Result<Option<(Signature, u64)>, io::Error> {
-    let patterns = [&RAR14[..], &RAR15[..], &RAR50[..]];
+                let format = match m.pattern().as_i32() {
+                    0 => Self::Rar14,
+                    1 => Self::Rar15,
+                    2 => Self::Rar50,
+                    _ => unreachable!(),
+                };
 
-    let Ok(ac) = AhoCorasick::new(patterns) else {
-        unreachable!()
-    };
-
-    match ac.stream_find_iter(reader).next() {
-        None => Ok(None),
-        Some(Err(e)) => Err(e),
-        Some(Ok(m)) => {
-            let start = m.start();
-
-            let format = match m.pattern().as_i32() {
-                0 => Signature::Rar14,
-                1 => Signature::Rar15,
-                2 => Signature::Rar50,
-                _ => unreachable!(),
-            };
-
-            Ok(Some((format, start as u64)))
+                Ok(Some((format, start as u64)))
+            }
         }
     }
 }
