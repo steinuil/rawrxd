@@ -1,6 +1,6 @@
 use std::{fs, io, process};
 
-use rawrxd::{rar14, rar15, rar50, signature::Signature};
+use rawrxd::{rar14, rar15, rar50, Signature};
 
 fn main() -> io::Result<()> {
     let mut args = std::env::args();
