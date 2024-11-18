@@ -815,9 +815,11 @@ impl SubBlock {
     }
 }
 
+// TODO supposedly the creation_time is in DOS format
+// and the archive and user name sizes are used to read the archive and user name
+// later in the header, but we don't have much information about this block right now.
 #[derive(Debug)]
 pub struct SignBlock {
-    // TODO flags?
     pub creation_time: u32,
     pub archive_name_size: u16,
     pub user_name_size: u16,
