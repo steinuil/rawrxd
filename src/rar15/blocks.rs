@@ -235,7 +235,7 @@ pub struct FileBlock {
     pub unpack_version: u8,
     pub method: u8,
     pub attributes: u32,
-    pub file_name: Result<String, Vec<u8>>,
+    pub file_name: Filename,
     pub salt: Option<[u8; Self::SALT_SIZE]>,
 }
 
@@ -264,6 +264,22 @@ flags! {
         // like the one in RAR5 blocks?
         pub has_extra_area = 0x2000;
     }
+}
+
+#[derive(Debug)]
+pub enum Filename {
+    /// Filename is encoded in Unicode and can be correctly decoded into UTF-8.
+    Unicode(Result<String, Vec<u8>>),
+
+    /// Filename was encoded using the current OEM code page but only contains
+    /// characters in the ASCII range, so it can be safely decoded into UTF-8.
+    Ascii(String),
+
+    /// Filename was encoded using the current OEM code page and cannot be decoded
+    /// on its own. The user must select an encoding and use
+    /// [`encoding_rs`](https://crates.io/crates/encoding_rs) or
+    /// [`oem_cp`](https://crates.io/crates/oem_cp) to decode it correctly.
+    Oem(Vec<u8>),
 }
 
 impl FileBlock {
@@ -303,19 +319,18 @@ impl FileBlock {
             (low_packed_data_size, low_unpacked_data_size)
         };
 
+        let file_name = read_vec(reader, name_size)?;
+
         let file_name = if flags.has_unicode_filename() {
-            let name = read_vec(reader, name_size as usize)?;
-            decode_file_name(name)
+            Filename::Unicode(decode_file_name(file_name))
+        } else if file_name.is_ascii() {
+            let Ok(string) = String::from_utf8(file_name) else {
+                unreachable!("we already checked that all characters are in the ASCII range");
+            };
+
+            Filename::Ascii(string)
         } else {
-            // TODO decode the filename when it's not unicode.
-            // On Unix it uses CharToWide, which is guaranteed to return garbage
-            // if we get a string with a character > 127 or if the OEM code page does
-            // not map ASCII characters to their normal meaning.
-            // On Windows  it uses the current OEM code page (which I think is set by locale?)
-            // so we could use this crate or at least suggest to use it:
-            // https://crates.io/crates/oem_cp
-            // For now we can just try to read unicode.
-            read_string(reader, name_size as usize)?
+            Filename::Oem(file_name)
         };
 
         let salt = if flags.has_salt() {

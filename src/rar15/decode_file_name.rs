@@ -19,9 +19,9 @@ pub fn decode_file_name(mut file_name: Vec<u8>) -> Result<String, Vec<u8>> {
 
 /// Decode a RAR-encoded filename into a String.
 ///
-/// My theory is that a RAR-encoded filename contains the filename in its original non-unicode
-/// encoding terminated with a 0 byte, followed by instructions on how to convert the original
-/// encoding into UTF-16 without relying on conversion tables.
+/// My theory is that a RAR-encoded filename contains the filename in its original OEM encoding
+/// terminated with a 0 byte, followed by instructions on how to convert the original encoding
+/// into UTF-16 without relying on conversion tables.
 /// I think it works this way to keep compatibility with older RAR versions that did not use
 /// this encoding scheme?
 ///
