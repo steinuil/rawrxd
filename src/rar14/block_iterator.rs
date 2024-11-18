@@ -37,6 +37,10 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
 
         self.next_offset = block.offset() + block.size();
 
+        if block.size() == 0 {
+            todo!("Implement something like a MaliciousHeader error")
+        }
+
         Ok(block)
     }
 }
