@@ -17,12 +17,12 @@ fn bad_archive() {
 /// Archive whose header_size is set to 0, or whose offset + header_size or offset + size
 /// exceed the EOF.
 #[rstest]
-#[case("corrupt_header_1")]
-#[case("corrupt_header_2")]
-#[case("corrupt_header_3")]
-#[case("corrupt_header_4")]
-#[case("corrupt_header_5")]
-fn corrupt_header(#[case] name: &str) {
+#[case("rar15_corrupt_header_1")]
+#[case("rar15_corrupt_header_2")]
+#[case("rar15_corrupt_header_3")]
+#[case("rar15_corrupt_header_4")]
+#[case("rar15_corrupt_header_5")]
+fn rar15_corrupt_header(#[case] name: &str) {
     let file_name = format!("tests/fixtures/abnormal/{name}.rar");
 
     let reader = io::BufReader::new(fs::File::open(file_name).unwrap());
