@@ -9,8 +9,8 @@ pub enum Error {
     #[error("expected more data")]
     UnexpectedEof,
 
-    #[error("malicious header with 0 length")]
-    MaliciousHeader,
+    #[error("header reported sizes are 0 or exceed the EOF")]
+    CorruptHeader,
 
     #[error(transparent)]
     Io(io::Error),

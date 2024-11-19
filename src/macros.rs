@@ -1,16 +1,5 @@
 /// Automatically implement From<T> for the type of the enum
 /// and add an Unknown case for when we fail parsing.
-///
-/// # Syntax
-///
-/// ```
-/// int_enum! {
-///     pub enum EnumName : type {
-///         Case1 = 0x01,
-///         Case2 = 0x02,
-///     }
-/// }
-/// ```
 macro_rules! int_enum {
     {
         $(#[doc = $struct_doc:expr])*

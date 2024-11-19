@@ -32,8 +32,11 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
 
         let block = Block::read(&mut self.reader)?;
 
-        if block.size() == 0 {
-            return Err(Error::MaliciousHeader);
+        if block.size() == 0
+            || block.offset() + block.header_size() > self.file_size
+            || block.offset() + block.size() > self.file_size
+        {
+            return Err(Error::CorruptHeader);
         }
 
         self.next_offset = block.offset() + block.size();

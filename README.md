@@ -1,3 +1,5 @@
+# Licensing
+
 ## UnRAR EULA disclaimer
 
 This library is based on the UnRAR source code distributed at https://www.rarlab.com/rar_add.htm
@@ -14,7 +16,12 @@ The license of the UnRAR source code states that the code may **not** be used to
 
 For more details, refer to the UnRAR source code license and the WinRAR EULA.
 
-### References
+## Test case license
+
+The test cases have been copied from [junrar](https://github.com/junrar/junrar) and their license
+is unknown. If that poses a legal issue they can be deleted.
+
+# References
 
 - https://entropymine.wordpress.com/2022/08/19/survey-of-rar-comment-formats/
 - https://www.liamfoot.com/analysing-the-effectiveness-of-winrar-s-rar5-recovery-records#heading_4
