@@ -1,6 +1,9 @@
 use std::io;
 
-use crate::size::BlockSize as _;
+use crate::{
+    error::{Error, RarResult},
+    size::BlockSize as _,
+};
 
 use super::{Block, BlockKind};
 
@@ -13,7 +16,7 @@ pub struct BlockIterator<R: io::Read + io::Seek> {
 }
 
 impl<R: io::Read + io::Seek> BlockIterator<R> {
-    pub fn new(mut reader: R, offset: u64) -> io::Result<Self> {
+    pub fn new(mut reader: R, offset: u64) -> RarResult<Self> {
         let file_size = reader.seek(io::SeekFrom::End(0))?;
 
         Ok(Self {
@@ -24,16 +27,16 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
         })
     }
 
-    fn read_block(&mut self) -> io::Result<Block> {
+    fn read_block(&mut self) -> RarResult<Block> {
         self.reader.seek(io::SeekFrom::Start(self.next_offset))?;
 
         let block = Block::read(&mut self.reader)?;
 
-        self.next_offset = block.offset() + block.size();
-
         if block.size() == 0 {
-            todo!("Implement something like a MaliciousHeader error")
+            return Err(Error::MaliciousHeader);
         }
+
+        self.next_offset = block.offset() + block.size();
 
         if let BlockKind::EndArchive(_) = block.kind {
             self.end_of_archive_reached = true;
@@ -44,7 +47,7 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
 }
 
 impl<R: io::Read + io::Seek> Iterator for BlockIterator<R> {
-    type Item = io::Result<Block>;
+    type Item = RarResult<Block>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.end_of_archive_reached {

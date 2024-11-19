@@ -1,8 +1,8 @@
 use std::{fs, io};
 
-use rawrxd::{rar14, rar15, rar50, Signature};
+use rawrxd::{error::RarResult, rar14, rar15, rar50, Signature};
 
-fn dump_headers(filename: &str) -> io::Result<()> {
+fn dump_headers(filename: &str) -> RarResult<()> {
     println!("{filename}");
 
     let f = fs::File::open(filename)?;
