@@ -160,7 +160,7 @@ impl MainBlock {
 
         let high_av_offset = read_u16(reader)? as u64;
         let low_av_offset = read_u32(reader)? as u64;
-        let av_offset = low_av_offset | (high_av_offset << 16);
+        let av_offset = low_av_offset | (high_av_offset << 32);
         let av_block_offset = if av_offset == 0 {
             None
         } else {
