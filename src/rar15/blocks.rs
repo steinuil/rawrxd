@@ -5,15 +5,23 @@ use crate::{read::*, size::BlockSize, time_conv};
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
 
 #[derive(Debug)]
+/// A generic RAR15 block.
 pub struct Block {
+    /// Offset of this block from the start of the file.
     pub offset: u64,
+
+    /// CRC16 hash of the header.
     pub header_crc16: u16,
-    pub flags: CommonFlags,
+
+    /// Size of the header.
     pub header_size: u16,
+
+    /// Specific type of this block.
     pub kind: BlockKind,
 }
 
 flags! {
+    /// Flags that are common to all blocks.
     pub struct CommonFlags(u16) {
         /// Unknown blocks with this flag must be skipped when updating
         /// an archive.
@@ -43,8 +51,6 @@ impl Block {
         let flags = read_u16(reader)?;
         let header_size = read_u16(reader)?;
 
-        let common_flags = CommonFlags::new(flags);
-
         let kind = match block_type {
             Self::MAIN => BlockKind::Main(MainBlock::read(reader, flags)?),
             Self::FILE => BlockKind::File(FileBlock::read(reader, flags)?),
@@ -61,7 +67,6 @@ impl Block {
         Ok(Block {
             offset,
             header_crc16,
-            flags: common_flags,
             header_size,
             kind,
         })
@@ -94,6 +99,7 @@ impl BlockSize for Block {
 }
 
 #[derive(Debug)]
+/// Concrete block type.
 pub enum BlockKind {
     Main(MainBlock),
     File(FileBlock),
@@ -108,37 +114,51 @@ pub enum BlockKind {
 }
 
 #[derive(Debug)]
+/// Main block containing archive metadata.
+///
+/// This should be the first block in the archive.
 pub struct MainBlock {
+    /// Flags containing archive metadata.
     pub flags: MainBlockFlags,
+
+    /// Offset of the authenticity verification block in the archive.
     pub av_block_offset: Option<u64>,
+
+    /// Version of the encryption used to encrypt the archive.
     pub encrypt_version: Option<u8>,
 }
 
 flags! {
+    /// [`MainBlock`] flags.
     pub struct MainBlockFlags(u16) {
-        /// Archive is part of a multi-volume archive.
+        /// Archive spans [multiple volumes][1].
+        ///
+        /// [1]: https://www.win-rar.com/split-files-archive.html?&L=0
         pub is_volume = 0x0001;
 
         /// Main header contains a comment.
-        /// This called is an old-style (up to RAR2.9) comment.
+        ///
+        /// This called is an old-style (up to RAR 2.90) comment.
         pub has_comment = 0x0002;
 
         /// WinRAR will not modify this archive.
         pub is_locked = 0x0004;
 
-        /// https://en.wikipedia.org/wiki/Solid_compression
+        /// Archive uses [solid compression][1].
+        ///
+        /// [1]: https://en.wikipedia.org/wiki/Solid_compression
         pub is_solid = 0x0008;
 
         /// In a multi-volume archive, indicates that the filenames end with
-        /// {.part01.rar, .part02.rar, ..., .partNN.rar} rather than with
-        /// {.rar, .r00, .r01, ... .rNN}
+        /// `{.part01.rar, .part02.rar, ..., .partNN.rar}` rather than with
+        /// `{.rar, .r00, .r01, ... .rNN}`
         pub uses_new_numbering = 0x0010;
 
         /// The archive includes some additional metadata like archive name,
         /// creation date and owner of the WinRAR license.
         pub has_authenticity_verification = 0x0020;
 
-        /// Contains a recovery record.
+        /// Archive contains a recovery record.
         // TODO document this better
         pub has_recovery_record = 0x0040;
 
@@ -192,17 +212,30 @@ impl Deref for MainBlock {
 }
 
 int_enum! {
+    /// OS of the host system used to add the file to the archive.
     pub enum HostOs : u8 {
+        /// MS-DOS
         MsDos = 0,
+
+        /// OS/2
         Os2 = 1,
+
+        /// Windows
         Win32 = 2,
+
+        /// Unix-like (Linux, OS X/macOS)
         Unix = 3,
+
+        /// Classic Mac OS (not to be confused with OS X/macOS)
         MacOs = 4,
+
+        /// BeOS
         BeOs = 5,
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Encryption method used to encrypt the files in the archive.
 pub enum EncryptionMethod {
     Rar13,
     Rar15,
@@ -222,24 +255,55 @@ impl From<u8> for EncryptionMethod {
 }
 
 #[derive(Debug)]
+/// Block containing a file or a directory.
+///
+/// The block(s?) following this one may contain additional metadata for the file.
 pub struct FileBlock {
+    /// File block flags.
     pub flags: FileBlockFlags,
+
+    /// Size of the data section of the block.
     pub packed_data_size: u64,
+
+    /// Size of the file after decompression.
     pub unpacked_data_size: u64,
+
+    /// OS used to add this file the archive.
     pub host_os: HostOs,
+
+    /// CRC32 hash of the file.
     pub file_crc32: u32,
+
+    /// Modification time of the file.
     pub modification_time: Result<time::PrimitiveDateTime, u32>,
+
+    /// Creation time of the file.
     pub creation_time: Option<Result<time::PrimitiveDateTime, u32>>,
+
+    /// Access time of the file.
     pub access_time: Option<Result<time::PrimitiveDateTime, u32>>,
+
+    /// Timestamp at which the file was added to or updated in the archive.
     pub archive_time: Option<Result<time::PrimitiveDateTime, u32>>,
+
+    // TODO enumerate these
     pub unpack_version: u8,
+
+    // TODO enumerate these
     pub method: u8,
+
+    /// File attributes, dependent on the OS.
     pub attributes: u32,
+
+    /// Filename of the file.
     pub file_name: Filename,
+
+    // TODO document this
     pub salt: Option<[u8; Self::SALT_SIZE]>,
 }
 
 flags! {
+    /// [`FileBlock`] flags.
     pub struct FileBlockFlags(u16) {
         /// File block contains a comment in the header.
         pub has_comment = 0x0002;
@@ -257,7 +321,7 @@ flags! {
         pub has_version = 0x0800;
 
         /// File may contain modification time, ctime and atime info in the header.
-        pub has_extended_time = 0x1000;
+        pub(self) has_extended_time = 0x1000;
 
         // TODO not sure how this is used.
         // Seems to indicate that there's an extra area in the header
@@ -267,6 +331,7 @@ flags! {
 }
 
 #[derive(Debug)]
+/// Filename encoded either in Unicode or using the OEM code page.
 pub enum Filename {
     /// Filename is encoded in Unicode and can be correctly decoded into UTF-8.
     Unicode(Result<String, Vec<u8>>),
@@ -294,7 +359,7 @@ impl FileBlock {
         let file_crc32 = read_u32(reader)?;
         let modification_time = read_u32(reader)?;
         let mut modification_time =
-            time_conv::parse_dos(modification_time).map_err(|_| modification_time);
+            time_conv::parse_dos_datetime(modification_time).map_err(|_| modification_time);
 
         // TODO map the possible values
         let unpack_version = read_u8(reader)?;
@@ -374,25 +439,56 @@ impl FileBlock {
 // TODO the service block has basically the same subheads
 // found in SubBlock, so we should parse them accordingly.
 #[derive(Debug)]
+/// Block containing metadata for the previons file block.
 pub struct ServiceBlock {
+    /// Service block flags.
     pub flags: ServiceBlockFlags,
+
+    /// Size of the data section of the block.
     pub packed_data_size: u64,
+
+    /// Size of the data section after decompression.
     pub unpacked_data_size: u64,
+
+    /// OS used to add this block to the archive.
     pub host_os: HostOs,
-    pub file_crc32: u32,
+
+    /// CRC32 hash of the data section.
+    pub data_crc32: u32,
+
+    /// Modification time of the file.
     pub modification_time: Result<time::PrimitiveDateTime, u32>,
+
+    /// Creation time of the file.
     pub creation_time: Option<Result<time::PrimitiveDateTime, u32>>,
+
+    /// Access time of the file.
     pub access_time: Option<Result<time::PrimitiveDateTime, u32>>,
+
+    /// Timestamp at which the file was added to the archive.
     pub archive_time: Option<Result<time::PrimitiveDateTime, u32>>,
+
+    // TODO enumerate these
     pub unpack_version: u8,
+
+    // TODO enumerate these
     pub method: u8,
+
+    /// Generic flags for all service block types.
     pub sub_flags: SubHeadFlags,
+
+    /// Concrete type of this service block.
     pub kind: ServiceBlockKind,
+
+    // TODO parse
     pub sub_data: Option<Vec<u8>>,
+
+    // TODO document this
     pub salt: Option<[u8; 8]>,
 }
 
 flags! {
+    /// [`ServiceBlock`] flags.
     pub struct ServiceBlockFlags(u16) {
         /// Service block contains a comment in the header.
         pub has_comment = 0x0002;
@@ -407,7 +503,7 @@ flags! {
         pub has_version = 0x0800;
 
         /// Data may contain modification time, ctime and atime info in the header.
-        pub has_extended_time = 0x1000;
+        pub(self) has_extended_time = 0x1000;
 
         // TODO not sure how this is used.
         // Seems to indicate that there's an extra area in the header
@@ -417,7 +513,7 @@ flags! {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServiceBlockType {
+enum ServiceBlockType {
     Comment,
     NtfsFilePermissions,
     NtfsAlternateDataStream,
@@ -445,6 +541,7 @@ impl ServiceBlockType {
 }
 
 #[derive(Debug)]
+/// Concrete service block type.
 pub enum ServiceBlockKind {
     Comment,
     NtfsFilePermissions,
@@ -471,10 +568,10 @@ impl ServiceBlock {
         let low_packed_data_size = read_u32(reader)? as u64;
         let low_unpacked_data_size = read_u32(reader)? as u64;
         let host_os = read_u8(reader)?.into();
-        let file_crc32 = read_u32(reader)?;
+        let data_crc32 = read_u32(reader)?;
         let modification_time = read_u32(reader)?;
         let mut modification_time =
-            time_conv::parse_dos(modification_time).map_err(|_| modification_time);
+            time_conv::parse_dos_datetime(modification_time).map_err(|_| modification_time);
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let name_size = read_u16(reader)? as usize;
@@ -550,7 +647,7 @@ impl ServiceBlock {
             packed_data_size,
             unpacked_data_size,
             host_os,
-            file_crc32,
+            data_crc32,
             modification_time,
             creation_time,
             access_time,
@@ -574,7 +671,9 @@ impl Deref for ServiceBlock {
 }
 
 flags! {
+    /// Flags that are common to all service block headers.
     pub struct SubHeadFlags(u32) {
+        // TODO document this
         pub is_inherited = 0x80000000;
 
         // SUBHEAD_FLAGS_CMT_UNICODE
@@ -583,11 +682,19 @@ flags! {
 }
 
 #[derive(Debug)]
+/// Block containing the archive comment.
 pub struct CommentBlock {
-    // TODO do we need flags?
+    /// Size of the comment after decompression.
     pub unpacked_data_size: u16,
+
+    // TODO enumerate these
     pub unpack_version: u8,
+
+    // TODO enumerate these
     pub method: u8,
+
+    /// CRC15t6 hash of the comment.
+    // TODO before or after decompression?
     pub crc16: u16,
 }
 
@@ -638,7 +745,7 @@ impl ProtectBlock {
 }
 
 int_enum! {
-    pub enum SubBlockType : u16 {
+    enum SubBlockType : u16 {
         // EA_HEAD
         Os2ExtendedAttributes = 0x100,
         // UO_HEAD
@@ -865,25 +972,37 @@ impl AvBlock {
 }
 
 #[derive(Debug)]
+/// Block signaling the end of the archive.
+///
+/// Typically added in multi-volume archives or when there is trailing data not part of the
+/// archive in the file.
 pub struct EndArchiveBlock {
+    /// End archive block flags.
     pub flags: EndArchiveBlockFlags,
+
+    // TODO document this
     pub archive_data_crc32: Option<u32>,
+
+    /// Number of the current volume.
     pub volume_number: Option<u16>,
 }
 
 flags! {
+    /// [`EndArchiveBlock`] flags.
     pub struct EndArchiveBlockFlags(u16) {
-        /// Archive is part of a volume and continues in the next volume.
+        /// Archive continues in the next volume.
         pub has_next_volume = 0x0001;
 
         /// Store CRC32 of RAR archive (only used in volumes).
-        pub has_crc32 = 0x0002;
+        // TODO what?
+        pub(self) has_crc32 = 0x0002;
 
         /// Reserve space for end of REV file 7 byte record.
+        // TODO what??
         pub reserve_space = 0x0004;
 
         /// Store the number of the current volume.
-        pub has_volume_number = 0x0008;
+        pub(self) has_volume_number = 0x0008;
     }
 }
 
@@ -922,9 +1041,15 @@ impl Deref for EndArchiveBlock {
 }
 
 #[derive(Debug)]
+/// Block that couldn't be decoded.
 pub struct UnknownBlock {
+    /// Tag identifying the block.
     pub tag: u8,
+
+    /// Generic flags.
     pub flags: CommonFlags,
+
+    /// Size of the data section.
     pub data_size: Option<u32>,
 }
 

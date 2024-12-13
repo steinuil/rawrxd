@@ -8,6 +8,10 @@ use crate::{
 use super::{Block, BlockKind};
 
 #[derive(Debug)]
+/// Iterator over the blocks of a RAR15 file.
+///
+/// Wraps an [`io::Read`] with an [`io::Seek`] impl and yields blocks until either the EOF or
+/// the EndOfArchive block is reached.
 pub struct BlockIterator<R: io::Read + io::Seek> {
     reader: R,
     file_size: u64,
@@ -16,6 +20,9 @@ pub struct BlockIterator<R: io::Read + io::Seek> {
 }
 
 impl<R: io::Read + io::Seek> BlockIterator<R> {
+    /// Create a [`BlockIterator`] starting at `offset`.
+    ///
+    /// `offset` must be the offset of the beginning of a block.
     pub fn new(mut reader: R, offset: u64) -> RarResult<Self> {
         let file_size = reader.seek(io::SeekFrom::End(0))?;
 

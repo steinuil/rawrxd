@@ -338,7 +338,7 @@ pub struct FileBlock {
     /// CRC32 of unpacked file.
     pub unpacked_data_crc32: Option<u32>,
 
-    // TODO document and parse this
+    /// Compression settings for this file.
     pub compression_info: CompressionInfo,
 
     /// OS used to create the archive.
@@ -406,6 +406,7 @@ impl CompressionInfo {
         self.0 & Self::USES_PACK_5_ALGORITHM_MASK != 0
     }
 
+    /// Actual version compression algorithm used to compress the file.
     pub fn algorithm(&self) -> CompressionAlgorithm {
         match self.version() {
             CompressionAlgorithm::Pack7 if self.uses_pack_5_algorithm() => {
@@ -415,6 +416,7 @@ impl CompressionInfo {
         }
     }
 
+    /// File spans multiple volumes.
     pub fn is_solid(&self) -> bool {
         self.0 & Self::SOLID_MASK != 0
     }

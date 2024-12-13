@@ -113,7 +113,7 @@ fn read_extended_time<R: io::Read>(
     Ok(if flags.exists() {
         let time = read_u32(reader)?;
 
-        Some(match time_conv::parse_dos(time) {
+        Some(match time_conv::parse_dos_datetime(time) {
             Ok(time) => Ok(read_extended_time_increments(reader, time, flags)?),
             Err(_) => Err(time),
         })

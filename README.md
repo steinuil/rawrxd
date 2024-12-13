@@ -35,3 +35,4 @@ is unknown. If that poses a legal issue they can be deleted.
 - https://opensource.apple.com/source/clamav/clamav-158/clamav.Bin/clamav-0.98/libclamunrar/unrar.c.auto.html
 - https://github.com/junrar/junrar
 - https://www.rarlab.com/technote.htm
+- http://rescene.wikidot.com/rar-versions timeline of RAR version releases

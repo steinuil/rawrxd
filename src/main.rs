@@ -1,6 +1,6 @@
 use std::{fs, io};
 
-use rawrxd::{error::RarResult, rar14, rar15, rar50, Signature};
+use rawrxd::{rar14, rar15, rar50, RarResult, Signature};
 
 fn dump_headers(filename: &str) -> RarResult<()> {
     println!("{filename}");

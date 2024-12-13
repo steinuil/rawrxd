@@ -3,20 +3,24 @@ use std::io;
 use aho_corasick::AhoCorasick;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// File signatures or "magic numbers" of the RAR family of file formats.
 pub enum Signature {
-    /// RAR 1.4
+    /// RAR archive compressed by RAR 1.4x
     Rar14,
 
-    /// RAR 1.5 to 4
+    /// RAR archive compressed by RAR 1.5 to 4.x
     Rar15,
 
-    /// RAR 5+
+    /// RAR archive compressed by RAR 5+
     Rar50,
 }
 
 impl Signature {
+    /// File signature of RAR14.
     pub const RAR14: &[u8; 4] = b"RE\x7e\x5e";
+    /// File signature of RAR15.
     pub const RAR15: &[u8; 7] = b"Rar!\x1a\x07\x00";
+    /// File signature of RAR50.
     pub const RAR50: &[u8; 8] = b"Rar!\x1a\x07\x01\x00";
 
     /// Byte size of the signature.
@@ -33,6 +37,7 @@ impl Signature {
         }
     }
 
+    /// Parse the RAR signature from the start of a byte slice.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.starts_with(Self::RAR14) {
             Some(Self::Rar14)
@@ -46,19 +51,40 @@ impl Signature {
     }
 
     /// The maximum size of the SFX binary embedded before the archive signature, including
-    /// the signature size. If the end of the signature exceeds this offset then this is not
-    /// a valid RAR archive.
+    /// the signature size.
+    ///
+    /// If the end of the signature exceeds this offset then this is not a valid RAR archive.
     pub const MAX_SFX_SIZE: u64 = 0x200000;
 
-    /// Search for a RAR signature in the stream up to `MAX_SFX_SIZE` and return the format
-    /// version and the offset of the signature in the file.
+    /// Search for a RAR signature in the stream up to [`Signature::MAX_SFX_SIZE`] and return the
+    /// format version and the offset of the signature in the file.
     ///
     /// The first block of the archive starts at `offset + format.size()`.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use rawrxd::Signature;
+    /// # use std::io;
+    /// # fn main() -> io::Result<()> {
+    /// # let mut file = io::Cursor::new(Vec::new());
+    /// let (format, offset) = Signature::search_stream(&mut file)?
+    ///     .expect("RAR signature not found");
+    /// let first_block_offset = offset + format.size();
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Details
+    ///
     /// The RAR signature generally starts at offset 0 in a normal .rar archive, but RAR files
-    /// can also be constructed as a *SFX* (self-extracting archive) which embed the binary
-    /// needed to extract the archive before the archive itself. This binary may have a size up to
-    /// `MAX_SFX_SIZE`, so we need to search for the signature within these bounds.
+    /// can also be constructed as a [*SFX*](https://en.wikipedia.org/wiki/Self-extracting_archive)
+    /// (self-extracting archive) which embed the binary needed to extract the archive before the
+    /// archive itself. This binary may have a size up to [`Signature::MAX_SFX_SIZE`] minus the
+    /// size of the signature.
+    ///
+    /// Uses [`aho_corasick`](https://docs.rs/aho-corasick/latest/aho_corasick/) under the hood
+    /// to search for the signatures efficiently.
     pub fn search_stream<R: io::Read>(reader: R) -> Result<Option<(Self, u64)>, io::Error> {
         let patterns = [&Self::RAR14[..], &Self::RAR15[..], &Self::RAR50[..]];
 
@@ -66,8 +92,7 @@ impl Signature {
             unreachable!("Aho-Corasick pattern not constructed correctly")
         };
 
-        // Avoid reading the whole file in case we don't find the signature within the
-        // MAX_SFX_SIZE.
+        // Avoid reading the whole file in case we don't find the signature within MAX_SFX_SIZE.
         let bounded_reader = &mut reader.take(Self::MAX_SFX_SIZE);
 
         match ac.stream_find_iter(bounded_reader).next() {

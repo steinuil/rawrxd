@@ -40,7 +40,7 @@
 #[macro_use]
 mod macros;
 pub mod compat;
-pub mod error;
+mod error;
 pub mod rar14;
 pub mod rar15;
 pub mod rar50;
@@ -49,4 +49,6 @@ mod signature;
 mod size;
 mod time_conv;
 
+pub use error::{Error, RarResult};
 pub use signature::Signature;
+pub use size::BlockSize;

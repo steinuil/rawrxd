@@ -1,6 +1,12 @@
 use std::time::Duration;
 
-pub fn parse_dos(dos_time: u32) -> Result<time::PrimitiveDateTime, time::error::ComponentRange> {
+/// Parse an MS-DOS datetime value.
+///
+/// Note: the time value only has a precision of two seconds.
+/// https://learn.microsoft.com/en-us/windows/win32/sysinfo/ms-dos-date-and-time
+pub fn parse_dos_datetime(
+    dos_time: u32,
+) -> Result<time::PrimitiveDateTime, time::error::ComponentRange> {
     let second = ((dos_time & 0x1f) * 2) as u8;
     let minute = ((dos_time >> 5) & 0x3f) as u8;
     let hour = ((dos_time >> 11) & 0x1f) as u8;
@@ -21,6 +27,9 @@ const ONE_SECOND_NS: i128 = Duration::from_secs(1).as_nanos() as _;
 const WINDOWS_TICK_NS: i128 = 100;
 const WINDOWS_EPOCH_DIFFERENCE: i128 = 11_644_473_600 * ONE_SECOND_NS;
 
+/// Parse a Windows FILETIME structure.
+///
+/// https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-filetime
 pub fn parse_windows_filetime(
     filetime: u64,
 ) -> Result<time::OffsetDateTime, time::error::ComponentRange> {

@@ -1,6 +1,6 @@
 use crate::rar15::block_iterator;
 
-use rawrxd::error::Error;
+use rawrxd::Error;
 use rstest::rstest;
 
 /// Archive whose header_size is set to 0, or whose offset + header_size or offset + size
