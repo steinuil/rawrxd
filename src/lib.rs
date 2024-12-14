@@ -48,6 +48,7 @@ mod read;
 mod signature;
 mod size;
 mod time_conv;
+mod unpack;
 
 pub use error::{Error, RarResult};
 pub use signature::Signature;

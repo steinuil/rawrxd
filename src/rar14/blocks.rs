@@ -43,6 +43,9 @@ pub struct MainBlock {
 
     /// Flags containing archive metadata.
     pub flags: MainBlockFlags,
+
+    /// Archive comment
+    pub comment: Option<OemString>,
 }
 
 flags! {
@@ -74,7 +77,6 @@ flags! {
 
 impl MainBlock {
     const SIGNATURE_SIZE: u16 = 4;
-    const HEADER_FIELDS_SIZE: u64 = 3;
 
     pub(super) fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let offset = reader.stream_position()?;
@@ -83,32 +85,27 @@ impl MainBlock {
         let flags = read_u8(reader)?;
         let flags = MainBlockFlags::new(flags);
 
+        let comment = if flags.has_comment() {
+            Self::read_comment(reader, flags.is_comment_packed())?
+        } else {
+            None
+        };
+
         Ok(MainBlock {
             offset,
             header_size,
             flags,
+            comment,
         })
     }
 
-    /// Read the archive comment, if present.
-    // TODO inline into read?
-    pub fn read_comment<R: io::Read + io::Seek>(
-        &self,
+    fn read_comment<R: io::Read + io::Seek>(
         reader: &mut R,
+        is_comment_packed: bool,
     ) -> io::Result<Option<OemString>> {
-        if !self.flags.has_comment() {
-            return Ok(None);
-        }
-
-        // The comment is considered part of the main block header, and it comes after all the
-        // other fields.
-        reader.seek(io::SeekFrom::Start(self.offset + Self::HEADER_FIELDS_SIZE))?;
-
         let size = read_u16(reader)? as usize;
 
-        // TODO comment encoding?
-
-        if !self.flags.is_comment_packed() {
+        if !is_comment_packed {
             if size == 0 {
                 return Ok(None);
             }
@@ -121,10 +118,22 @@ impl MainBlock {
             return Ok(None);
         }
 
-        let _unpacked_comment_size = read_u16(reader)? - 2;
+        let unpacked_size = read_u16(reader)?;
 
-        // TODO the comment is compressed
-        // arccmt.cpp:70
+        if unpacked_size < 2 {
+            return Ok(None);
+        }
+
+        let _unpacked_size = unpacked_size - 2;
+
+        let crypt_method = 1;
+        let unpack_version = 15;
+        let mut key13 = [0, 7, 77];
+
+        let mut old_dist = [!0, !0, !0, !0];
+        let mut old_dist_ptr = 0;
+
+        // TODO unpack comment
 
         Ok(None)
     }

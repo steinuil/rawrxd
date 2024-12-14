@@ -13,8 +13,8 @@ pub struct RecordIterator<'a, R: io::Read + io::Seek> {
     next_record_offset: u64,
 }
 
-impl<'a, R: io::Read + io::Seek> RecordIterator<'a, R> {
-    pub fn new(reader: &'a mut R, extra_area_size: u64) -> io::Result<Self> {
+impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
+    pub fn new(reader: &'r mut R, extra_area_size: u64) -> io::Result<Self> {
         let offset = reader.stream_position()?;
         let end_offset = offset + extra_area_size;
         let next_record_offset = offset;
@@ -44,7 +44,7 @@ impl<'a, R: io::Read + io::Seek> RecordIterator<'a, R> {
     }
 }
 
-impl<'a, R: io::Read + io::Seek> Iterator for RecordIterator<'a, R> {
+impl<R: io::Read + io::Seek> Iterator for RecordIterator<'_, R> {
     type Item = io::Result<CommonRecord>;
 
     fn next(&mut self) -> Option<Self::Item> {
