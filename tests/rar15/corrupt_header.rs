@@ -16,10 +16,7 @@ fn rar15_corrupt_header(#[case] name: &str) {
 
     let mut iter = block_iterator(&file_name);
 
-    let err = iter.find_map(|block| match block {
-        Ok(_) => None,
-        Err(e) => Some(e),
-    });
+    let err = iter.find_map(|block| block.err());
 
     assert!(matches!(err, Some(Error::CorruptHeader)));
 }
