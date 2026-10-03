@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Read as _};
 
 pub fn read_u8<R: io::Read>(r: &mut R) -> io::Result<u8> {
     let mut buf = [0; 1];
@@ -51,9 +51,15 @@ pub fn read_const_bytes<const N: usize, R: io::Read>(r: &mut R) -> io::Result<[u
     Ok(buf)
 }
 
+// The amount of memory we're willing to preallocate for a block
+const MAX_PREALLOC: usize = 64 * 1024;
+
 pub fn read_vec<R: io::Read>(r: &mut R, size: usize) -> io::Result<Vec<u8>> {
-    let mut buf = vec![0; size];
-    r.read_exact(&mut buf)?;
+    let mut buf = Vec::with_capacity(MAX_PREALLOC);
+    r.take(size as u64).read_to_end(&mut buf)?;
+    if buf.len() != size {
+        return Err(io::ErrorKind::UnexpectedEof.into());
+    }
     Ok(buf)
 }
 
