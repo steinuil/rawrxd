@@ -184,8 +184,8 @@ pub struct FileBlock {
 
     /// Modification time of the file.
     ///
-    /// MS-DOS timestamps are not timezone aware, so this is provided as a PrimitiveDateTime
-    /// and converting to an OffsetDateTime is left up to the calling code.
+    /// MS-DOS timestamps are not timezone aware, so this is provided as a [`time::PrimitiveDateTime`]
+    /// and converting to a [`time::OffsetDateTime`] is left up to the calling code.
     pub modification_time: Result<time::PrimitiveDateTime, u32>,
 
     /// DOS attributes of the file.
@@ -217,7 +217,7 @@ flags! {
         /// File is encrypted with a password.
         pub is_encrypted = 0x04;
 
-        /// Header contains comment
+        /// Header contains a comment.
         pub has_comment = 0x08;
     }
 }

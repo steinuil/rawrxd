@@ -1,8 +1,8 @@
 //! A library for reading RAR archives.
 //!
 //! This library provides a decoder for the RAR archive format(s) by Eugene Roshal.
-//! It *does and will not implement an encoder* as it is forbidden by the RARLAB products'
-//! licenses.
+//! It *does not and will not implement an encoder* as it is forbidden by the RARLAB
+//! products' licenses.
 //!
 //! RAR is a collection of several incompatible formats:
 //!
@@ -18,7 +18,7 @@
 //! At the moment it supports:
 //!
 //! - [ ] RAR13
-//!   - Currently not supported due to lack of information on this format. If you have any
+//!   - Currently not planned due to lack of information on this format. If you have any
 //!     RAR files this old lying around please get in touch!
 //! - [ ] RAR14:
 //!   - [x] Metadata
