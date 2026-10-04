@@ -63,13 +63,23 @@ impl Block {
     const CRYPT: u64 = 0x04;
     const ENDARC: u64 = 0x05;
 
+    const MAX_HEADER_SIZE: u64 = 0x200_000;
+
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let offset = reader.stream_position()?;
 
         let header_crc32 = read_u32(reader)?;
 
         let (header_size, vint_size) = read_vint(reader)?;
+        if header_size == 0 || header_size > Self::MAX_HEADER_SIZE {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+
         let full_header_size = header_size + vint_size as u64 + 4;
+
+        // Create a new reader to ensure that we can't read past the header
+        let header = read_vec(reader, header_size as usize)?;
+        let reader = &mut io::Cursor::new(header);
 
         let (header_type, _) = read_vint(reader)?;
 
