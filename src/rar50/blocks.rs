@@ -767,7 +767,9 @@ impl ServiceBlock {
                 Self::SERVICE_DATA => {
                     match name {
                         Ok(ServiceBlockType::RecoveryRecord) => {
-                            recovery_record = Some(RecoveryRecordInfo::read(&mut record.data)?);
+                            if !record.data.get_ref().is_empty() {
+                                recovery_record = Some(RecoveryRecordInfo::read(&mut record.data)?);
+                            }
                         }
                         _ => {
                             unknown_records.push(UnknownRecord::new(Self::SERVICE_DATA))
