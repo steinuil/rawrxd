@@ -254,6 +254,13 @@ impl From<u8> for EncryptionMethod {
     }
 }
 
+/// Mask for the dictionary size packed into the file and service block flags.
+///
+/// If it's equal to [`WINDOW_DIRECTORY`], the entry is a directory
+/// and needs no dictionary to unpack.
+const WINDOW_MASK: u16 = 0x00e0;
+const WINDOW_DIRECTORY: u16 = 0x00e0;
+
 #[derive(Debug)]
 /// Block containing a file or a directory.
 ///
@@ -342,6 +349,19 @@ flags! {
     }
 }
 
+impl FileBlockFlags {
+    fn is_directory(self) -> bool {
+        self.0 & WINDOW_MASK == WINDOW_DIRECTORY
+    }
+
+    fn dictionary_size(self) -> Option<u64> {
+        match self.0 & WINDOW_MASK {
+            WINDOW_DIRECTORY => None,
+            window => Some(0x10000 << (window >> 5)),
+        }
+    }
+}
+
 #[derive(Debug)]
 /// Filename encoded either in Unicode or using the OEM code page.
 pub enum Filename {
@@ -361,6 +381,8 @@ pub enum Filename {
 
 impl FileBlock {
     const SALT_SIZE: usize = 8;
+
+    const DOS_DIRECTORY_ATTRIBUTE: u32 = 0x10;
 
     fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = FileBlockFlags::new(flags);
@@ -445,6 +467,19 @@ impl FileBlock {
             file_name,
             salt,
         })
+    }
+
+    /// Entry is a directory.
+    pub fn is_directory(&self) -> bool {
+        let has_dos_directory_attribute =
+            self.unpack_version < 20 && self.attributes & Self::DOS_DIRECTORY_ATTRIBUTE != 0;
+
+        self.flags.is_directory() || has_dos_directory_attribute
+    }
+
+    /// Dictionary size needed to decompress the file, or `None` if the entry is a directory.
+    pub fn dictionary_size(&self) -> Option<u64> {
+        self.flags.dictionary_size()
     }
 }
 
@@ -533,6 +568,15 @@ flags! {
         // Seems to indicate that there's an extra area in the header
         // like the one in RAR5 blocks?
         pub has_extra_area = 0x2000;
+    }
+}
+
+impl ServiceBlockFlags {
+    fn dictionary_size(self) -> Option<u64> {
+        match self.0 & WINDOW_MASK {
+            WINDOW_DIRECTORY => None,
+            window => Some(0x10000 << (window >> 5)),
+        }
     }
 }
 
@@ -686,6 +730,14 @@ impl ServiceBlock {
             sub_data,
             salt,
         })
+    }
+
+    /// Dictionary size needed to decompress the file.
+    // unrar applies the same logic for both file and service blocks,
+    // but since I don't think a service block can be applied to a directory,
+    // it's unclear what a `None` size means, semantically.
+    pub fn dictionary_size(&self) -> Option<u64> {
+        self.flags.dictionary_size()
     }
 }
 
