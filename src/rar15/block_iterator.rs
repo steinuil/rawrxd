@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{
     error::{Error, RarResult},
-    size::{next_block_offset, BlockSize as _},
+    size::next_block_offset,
 };
 
 use super::{Block, BlockKind};
@@ -40,8 +40,6 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
         let block = Block::read(&mut self.reader)?;
 
         self.next_offset = next_block_offset(&block, self.file_size).ok_or(Error::CorruptHeader)?;
-
-        // self.next_offset = block.offset() + block.size();
 
         if let BlockKind::EndArchive(_) = block.kind {
             self.done = true;
