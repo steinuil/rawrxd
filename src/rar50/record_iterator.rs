@@ -14,17 +14,24 @@ pub struct RecordIterator<'a, R: io::Read + io::Seek> {
 }
 
 impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
-    pub fn new(reader: &'r mut R, extra_area_size: u64) -> io::Result<Self> {
-        let offset = reader.stream_position()?;
-        let end_offset = offset
-            .checked_add(extra_area_size)
+    pub fn new(reader: &'r mut R, header_size: u64, extra_area_size: u64) -> io::Result<Self> {
+        let start = header_size
+            .checked_sub(extra_area_size)
             .ok_or(io::ErrorKind::InvalidData)?;
-        let next_record_offset = offset;
+
+        // We expect this record iterator to be called from exactly the start of the extra fields.
+        // If the position doesn't match, the extra area overlaps the header, or we
+        // have a bug in the header parsing. Either way, we should bail out.
+        //
+        // unrar seems to just ignore the extra area in this case.
+        if reader.stream_position()? > start {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
 
         Ok(Self {
             reader,
-            end_offset,
-            next_record_offset,
+            end_offset: header_size,
+            next_record_offset: start,
         })
     }
 

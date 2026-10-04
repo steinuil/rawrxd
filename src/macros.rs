@@ -99,7 +99,7 @@ macro_rules! parse_records {
         let mut $unknown = vec![];
 
         if let Some(extra_area_size) = $common_header.extra_area_size {
-            for record in RecordIterator::new($reader, extra_area_size)? {
+            for record in RecordIterator::new($reader, $common_header.header_size, extra_area_size)? {
                 let mut record = record?;
 
                 match record.record_type {

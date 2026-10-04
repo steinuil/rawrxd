@@ -52,6 +52,7 @@ pub enum BlockKind {
 
 #[derive(Debug)]
 struct CommonHeader {
+    pub header_size: u64,
     pub extra_area_size: Option<u64>,
 }
 
@@ -98,7 +99,10 @@ impl Block {
             None
         };
 
-        let common_header = CommonHeader { extra_area_size };
+        let common_header = CommonHeader {
+            header_size,
+            extra_area_size,
+        };
 
         let kind = match header_type {
             Self::MAIN => BlockKind::Main(MainBlock::read(reader, &common_header)?),
