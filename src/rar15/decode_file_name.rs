@@ -137,7 +137,7 @@ enum CopyNameInstruction {
     /// Read length + 2 characters from the name section.
     Chunk(u8),
 
-    /// Read (length & !0x80) characters from the name section;
+    /// Read (length & !0x80) + 2 characters from the name section;
     /// the next byte in the encoded section contains a correction which needs
     /// to be added to the characters from the name section, along with the high byte.
     ChunkWithCorrection(u8),
@@ -148,7 +148,7 @@ impl CopyNameInstruction {
 
     fn new(length: u8) -> Self {
         if length & Self::HAS_CORRECTION != 0 {
-            Self::ChunkWithCorrection(length & !Self::HAS_CORRECTION)
+            Self::ChunkWithCorrection((length & !Self::HAS_CORRECTION) + 2)
         } else {
             Self::Chunk(length + 2)
         }
