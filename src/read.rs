@@ -55,7 +55,7 @@ pub fn read_const_bytes<const N: usize, R: io::Read>(r: &mut R) -> io::Result<[u
 const MAX_PREALLOC: usize = 64 * 1024;
 
 pub fn read_vec<R: io::Read>(r: &mut R, size: usize) -> io::Result<Vec<u8>> {
-    let mut buf = Vec::with_capacity(MAX_PREALLOC);
+    let mut buf = Vec::with_capacity(size.min(MAX_PREALLOC));
     r.take(size as u64).read_to_end(&mut buf)?;
     if buf.len() != size {
         return Err(io::ErrorKind::UnexpectedEof.into());
