@@ -9,6 +9,15 @@ pub fn read_unix_time_nanos<R: io::Read>(
     Ok(time_conv::parse_unix_timestamp_ns(nanos).map_err(|_| nanos))
 }
 
+pub fn read_unix_time_nanos_adjustment<R: io::Read>(reader: &mut R) -> io::Result<time::Duration> {
+    let nanos = read_u32(reader)? & 0x3fff_ffff;
+    Ok(time::Duration::nanoseconds(if nanos < 1000000000 {
+        nanos as i64
+    } else {
+        0
+    }))
+}
+
 pub fn read_unix_time_sec<R: io::Read>(
     reader: &mut R,
 ) -> io::Result<Result<time::OffsetDateTime, u32>> {

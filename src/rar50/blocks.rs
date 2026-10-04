@@ -947,20 +947,18 @@ impl FileTimeRecord {
             }
 
             if let Some(t) = modification_time {
-                let nanos = read_u32(reader)? as i64;
-                modification_time =
-                    Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+                let nanos = read_unix_time_nanos_adjustment(reader)?;
+                modification_time = Some(t.map(|x| x.saturating_add(nanos)))
             }
 
             if let Some(t) = creation_time {
-                let nanos = read_u32(reader)? as i64;
-                creation_time =
-                    Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+                let nanos = read_unix_time_nanos_adjustment(reader)?;
+                creation_time = Some(t.map(|x| x.saturating_add(nanos)))
             }
 
             if let Some(t) = access_time {
-                let nanos = read_u32(reader)? as i64;
-                access_time = Some(t.map(|x| x.saturating_add(time::Duration::nanoseconds(nanos))))
+                let nanos = read_unix_time_nanos_adjustment(reader)?;
+                access_time = Some(t.map(|x| x.saturating_add(nanos)))
             }
 
             Ok(FileTimeRecord {
