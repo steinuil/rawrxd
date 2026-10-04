@@ -247,6 +247,9 @@ impl FileBlock {
         let name_size = read_u8(reader)? as usize;
         let method = read_u8(reader)?;
 
+        let name = read_vec(reader, name_size)?;
+        let name = OemString::parse(name);
+
         // UnRAR doesn't even read this, but the documentation for RAR 1.4
         // says it might be present.
         let comment = if flags.has_comment() {
@@ -256,9 +259,6 @@ impl FileBlock {
         } else {
             None
         };
-
-        let name = read_vec(reader, name_size)?;
-        let name = OemString::parse(name);
 
         Ok(FileBlock {
             offset,
