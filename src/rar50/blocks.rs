@@ -224,7 +224,10 @@ impl Deref for MainBlock {
 
 #[derive(Debug)]
 pub struct LocatorRecord {
+    /// Offset of the [`QuickOpenServiceBlock`] relative to [`Block::offset`].
     pub quick_open_record_offset: Option<u64>,
+
+    /// Offset of the [`RecoveryRecordServiceBlock`] relative to [`Block::offset`].
     pub recovery_record_offset: Option<u64>,
 }
 
