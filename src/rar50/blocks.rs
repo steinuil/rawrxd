@@ -814,6 +814,7 @@ impl Deref for ServiceBlock {
 
 #[derive(Debug)]
 pub struct FileEncryptionRecord {
+    pub version: EncryptionVersion,
     pub flags: FileEncryptionRecordFlags,
     pub kdf_count: u8,
     pub salt: [u8; 16],
@@ -830,10 +831,15 @@ flags! {
 
 impl FileEncryptionRecord {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+        let (version, _) = read_vint(reader)?;
+        let version = (version as u8).into();
+
         let (flags, _) = read_vint(reader)?;
         let flags = FileEncryptionRecordFlags::new(flags as u8);
 
+        // TODO unrar also checks that this is <= 24.
         let kdf_count = read_u8(reader)?;
+
         let salt = read_const_bytes(reader)?;
         let iv = read_const_bytes(reader)?;
 
@@ -844,6 +850,7 @@ impl FileEncryptionRecord {
         };
 
         Ok(FileEncryptionRecord {
+            version,
             flags,
             kdf_count,
             salt,
