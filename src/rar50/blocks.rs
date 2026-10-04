@@ -681,6 +681,8 @@ pub struct RecoveryRecordInfo {
     pub percentage: u64,
 
     /// Usually two bytes, unrelated to the size of the archive.
+    // TODO this was probably the trailing bytes from the vint that we
+    // used to read as a u8.
     pub unknown: Vec<u8>,
 }
 
