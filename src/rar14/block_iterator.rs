@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{
     error::{Error, RarResult},
-    size::BlockSize as _,
+    size::next_block_offset,
 };
 
 use super::{Block, FileBlock, MainBlock};
@@ -16,6 +16,7 @@ pub struct BlockIterator<R: io::Read + io::Seek> {
     file_size: u64,
     next_offset: u64,
     has_read_main_block: bool,
+    done: bool,
 }
 
 impl<R: io::Read + io::Seek> BlockIterator<R> {
@@ -30,6 +31,7 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
             file_size,
             has_read_main_block: false,
             next_offset: offset,
+            done: false,
         })
     }
 
@@ -44,14 +46,7 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
             Block::File(FileBlock::read(&mut self.reader)?)
         };
 
-        if block.size() == 0
-            || block.offset() + block.header_size() > self.file_size
-            || block.offset() + block.size() > self.file_size
-        {
-            return Err(Error::CorruptHeader);
-        }
-
-        self.next_offset = block.offset() + block.size();
+        self.next_offset = next_block_offset(&block, self.file_size).ok_or(Error::CorruptHeader)?;
 
         Ok(block)
     }
@@ -61,10 +56,15 @@ impl<R: io::Read + io::Seek> Iterator for BlockIterator<R> {
     type Item = RarResult<Block>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.next_offset == self.file_size {
+        if self.done || self.next_offset == self.file_size {
             return None;
         }
 
-        Some(self.read_block())
+        let block = self.read_block();
+        if block.is_err() {
+            self.done = true;
+        }
+
+        Some(block)
     }
 }
