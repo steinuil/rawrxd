@@ -81,7 +81,9 @@ impl MainBlock {
     pub(super) fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let offset = reader.stream_position()?;
 
-        let header_size = read_u16(reader)? - Self::SIGNATURE_SIZE;
+        let header_size = read_u16(reader)?
+            .checked_sub(Self::SIGNATURE_SIZE)
+            .ok_or(io::ErrorKind::InvalidData)?;
         let flags = read_u8(reader)?;
         let flags = MainBlockFlags::new(flags);
 
