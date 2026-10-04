@@ -78,12 +78,17 @@ flags! {
 impl MainBlock {
     const SIGNATURE_SIZE: u16 = 4;
 
+    const MIN_HEADER_SIZE: u16 = 7;
+
     pub(super) fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let offset = reader.stream_position()?;
 
-        let header_size = read_u16(reader)?
-            .checked_sub(Self::SIGNATURE_SIZE)
-            .ok_or(io::ErrorKind::InvalidData)?;
+        let header_size = read_u16(reader)?;
+        if header_size < Self::MIN_HEADER_SIZE {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        let header_size = header_size - Self::SIGNATURE_SIZE;
+
         let flags = read_u8(reader)?;
         let flags = MainBlockFlags::new(flags);
 
@@ -225,6 +230,8 @@ flags! {
 }
 
 impl FileBlock {
+    const MIN_HEADER_SIZE: u16 = 21;
+
     pub(super) fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<FileBlock> {
         let offset = reader.stream_position()?;
 
@@ -232,6 +239,9 @@ impl FileBlock {
         let unpacked_data_size = read_u32(reader)?;
         let crc16 = read_u16(reader)?;
         let header_size = read_u16(reader)?;
+        if header_size < Self::MIN_HEADER_SIZE {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
 
         let modification_time = read_u32(reader)?;
         let modification_time =
