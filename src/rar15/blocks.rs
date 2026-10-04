@@ -584,8 +584,8 @@ impl ServiceBlock {
             let high_unpacked_data_size = read_u32(reader)? as u64;
 
             (
-                (high_packed_data_size >> 32) | low_packed_data_size,
-                (high_unpacked_data_size >> 32) | low_unpacked_data_size,
+                (high_packed_data_size << 32) | low_packed_data_size,
+                (high_unpacked_data_size << 32) | low_unpacked_data_size,
             )
         } else {
             (low_packed_data_size, low_unpacked_data_size)
