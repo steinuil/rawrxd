@@ -613,9 +613,12 @@ impl ServiceBlock {
         };
 
         let sub_data_size = (header_size as usize)
-            - name_size
-            - Self::SIZE
-            - if flags.has_salt() { Self::SALT_SIZE } else { 0 };
+            .checked_sub(name_size)
+            .ok_or(io::ErrorKind::InvalidData)?
+            .checked_sub(Self::SIZE)
+            .ok_or(io::ErrorKind::InvalidData)?
+            .checked_sub(if flags.has_salt() { Self::SALT_SIZE } else { 0 })
+            .ok_or(io::ErrorKind::InvalidData)?;
 
         let sub_data = if sub_data_size > 0 {
             Some(read_vec(reader, sub_data_size)?)
