@@ -14,6 +14,9 @@ pub struct RecordIterator<'a, R: io::Read + io::Seek> {
 }
 
 impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
+    const SERVICE_DATA: u64 = 0x07;
+    const MIN_RECORD_SIZE: u64 = 2;
+
     pub fn new(reader: &'r mut R, header_size: u64, extra_area_size: u64) -> io::Result<Self> {
         let start = header_size
             .checked_sub(extra_area_size)
@@ -39,18 +42,36 @@ impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
         self.reader
             .seek(io::SeekFrom::Start(self.next_record_offset))?;
 
-        let (record_size, byte_size) = read_vint(self.reader)?;
+        let (record_size, size_byte_size) = read_vint(self.reader)?;
+
+        let record_start = self
+            .next_record_offset
+            .checked_add(size_byte_size as u64)
+            .ok_or(io::ErrorKind::InvalidData)?;
+        let record_end = record_start
+            .checked_add(record_size)
+            .ok_or(io::ErrorKind::InvalidData)?;
+
+        if record_size == 0 || record_end > self.end_offset {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+
         let (record_type, type_byte_size) = read_vint(self.reader)?;
 
-        let data_size = (record_size as usize)
-            .checked_sub(type_byte_size as usize)
+        // RAR 5.12 and earlier wrote the service data record 1 byte too short.
+        let record_end = if record_type == Self::SERVICE_DATA && self.end_offset - record_end == 1 {
+            record_end + 1
+        } else {
+            record_end
+        };
+
+        let data_size = record_end
+            .checked_sub(record_start + type_byte_size as u64)
             .ok_or(io::ErrorKind::InvalidData)?;
 
-        let data = read_vec(self.reader, data_size)?;
+        let data = read_vec(self.reader, data_size as usize)?;
 
-        self.next_record_offset += record_size
-            .checked_add(byte_size as u64)
-            .ok_or(io::ErrorKind::InvalidData)?;
+        self.next_record_offset = record_end;
 
         Ok(CommonRecord {
             record_type,
@@ -63,7 +84,7 @@ impl<R: io::Read + io::Seek> Iterator for RecordIterator<'_, R> {
     type Item = io::Result<CommonRecord>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.next_record_offset >= self.end_offset {
+        if self.end_offset.saturating_sub(self.next_record_offset) < Self::MIN_RECORD_SIZE {
             return None;
         }
 
