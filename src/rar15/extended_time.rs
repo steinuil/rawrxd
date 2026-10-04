@@ -87,9 +87,10 @@ impl ExtendedTime {
 
         // We don't need to read mtime because it's already been read before.
         let flags = ExtendedTimeFlags::shifted(all_flags, 3);
-        let modification_time = match (modification_time, flags.exists()) {
-            (Ok(t), true) => Ok(read_extended_time_increments(reader, t, flags)?),
-            (t, _) => t,
+        let modification_time = if flags.exists() {
+            read_extended_time_increments(reader, modification_time, flags)?
+        } else {
+            modification_time
         };
 
         let creation_time = read_extended_time(reader, ExtendedTimeFlags::shifted(all_flags, 2))?;
@@ -112,31 +113,33 @@ fn read_extended_time<R: io::Read>(
 ) -> io::Result<Option<Result<time::PrimitiveDateTime, u32>>> {
     Ok(if flags.exists() {
         let time = read_u32(reader)?;
+        let time = time_conv::parse_dos_datetime(time).map_err(|_| time);
 
-        Some(match time_conv::parse_dos_datetime(time) {
-            Ok(time) => Ok(read_extended_time_increments(reader, time, flags)?),
-            Err(_) => Err(time),
-        })
+        Some(read_extended_time_increments(reader, time, flags)?)
     } else {
         None
     })
 }
 
 /// Read the extended time increments and add them to the timestamp.
+///
+/// The extra vints indicated by the flags are read regardless of whether
+/// the time value was parsed correctly.
 fn read_extended_time_increments<R: io::Read>(
     reader: &mut R,
-    mut t: time::PrimitiveDateTime,
+    t: Result<time::PrimitiveDateTime, u32>,
     flags: ExtendedTimeFlags,
-) -> io::Result<time::PrimitiveDateTime> {
-    if flags.add_second() {
-        t = t.saturating_add(time::Duration::SECOND);
-    }
-
+) -> io::Result<Result<time::PrimitiveDateTime, u32>> {
     let precision = flags.hundred_nanos_increment_precision();
     let hundred_nanos = read_extended_time_hundred_nanos(reader, precision)?;
-    let nanos = hundred_nanos * 100;
 
-    Ok(t.saturating_add(time::Duration::nanoseconds(nanos as _)))
+    Ok(t.map(|mut t| {
+        if flags.add_second() {
+            t = t.saturating_add(time::Duration::SECOND);
+        }
+
+        t.saturating_add(time::Duration::nanoseconds(hundred_nanos as i64 * 100))
+    }))
 }
 
 /// Read a `size`-sized int and shift it by `ExtendedTimeFlags::MAX_PRECISION - size` bytes.
