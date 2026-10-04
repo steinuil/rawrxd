@@ -5,19 +5,11 @@ use std::io::Cursor;
 use libfuzzer_sys::fuzz_target;
 use rawrxd::{rar14, rar15, rar50, Signature};
 
-fuzz_target!(|data: &[u8]| {
-    let Some((&selector, rest)) = data.split_first() else {
-        return;
-    };
-
-    let format = match selector % 3 {
-        0 => Signature::Rar14,
-        1 => Signature::Rar15,
-        _ => Signature::Rar50,
-    };
+fuzz_target!(|d: (Signature, &[u8])| {
+    let (format, data) = d;
 
     let mut file = format.signature().to_vec();
-    file.extend_from_slice(rest);
+    file.extend_from_slice(data);
     let file_len = file.len();
     let reader = Cursor::new(file);
     let offset = format.size();
