@@ -267,7 +267,7 @@ impl LocatorRecord {
 
 #[derive(Debug)]
 pub struct MetadataRecord {
-    pub name: Option<String>,
+    pub name: Option<Result<String, Vec<u8>>>,
     pub creation_time: Option<Result<time::OffsetDateTime, u64>>,
 }
 
@@ -292,7 +292,7 @@ impl MetadataRecord {
             if name.is_empty() {
                 None
             } else {
-                Some(String::from_utf8(name).unwrap())
+                Some(String::from_utf8(name).map_err(|e| e.into_bytes()))
             }
         } else {
             None
@@ -995,7 +995,7 @@ impl FileVersionRecord {
 pub struct FileSystemRedirectionRecord {
     pub redirection_type: FileSystemRedirectionType,
     pub flags: FileSystemRedirectionRecordFlags,
-    pub name: String,
+    pub name: Result<String, Vec<u8>>,
 }
 
 int_enum! {
@@ -1024,7 +1024,7 @@ impl FileSystemRedirectionRecord {
 
         let (name_length, _) = read_vint(reader)?;
         let name = read_vec(reader, name_length as usize)?;
-        let name = String::from_utf8(name).unwrap();
+        let name = String::from_utf8(name).map_err(|e| e.into_bytes());
 
         Ok(FileSystemRedirectionRecord {
             redirection_type,
