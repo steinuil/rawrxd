@@ -9,9 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-
-[dependencies.rawrxd]
-path = ".."
+rawrxd = { path = "..", features = ["arbitrary"] }
 
 [[bin]]
 name = "rar_blocks"
