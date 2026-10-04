@@ -305,8 +305,20 @@ pub struct FileBlock {
 flags! {
     /// [`FileBlock`] flags.
     pub struct FileBlockFlags(u16) {
-        /// File block contains a comment in the header.
-        pub has_comment = 0x0002;
+        /// File data continues from the previous volume.
+        pub split_before = 0x0001;
+
+        /// File data continues in the next volume.
+        pub split_after = 0x0002;
+
+        /// File data is encrypted.
+        pub is_encrypted = 0x0004;
+
+        /// Header contains an old-style (RAR 2.x and earlier) file comment.
+        pub has_comment = 0x0008;
+
+        /// File is compressed using data from the previous archives.
+        pub is_solid = 0x0010;
 
         /// The file size is larger than u32::MAX.
         pub(self) has_large_size = 0x0100;
@@ -490,8 +502,20 @@ pub struct ServiceBlock {
 flags! {
     /// [`ServiceBlock`] flags.
     pub struct ServiceBlockFlags(u16) {
-        /// Service block contains a comment in the header.
-        pub has_comment = 0x0002;
+        /// Data continues from the previous volume.
+        pub split_before = 0x0001;
+
+        /// Data continues in the next volume.
+        pub split_after = 0x0002;
+
+        /// Data is encrypted.
+        pub is_encrypted = 0x0004;
+
+        /// Header contains an old-style (RAR 2.x and earlier) comment.
+        pub has_comment = 0x0008;
+
+        /// Service block belongs to the preceding file block.
+        pub is_child = 0x0010;
 
         /// The file size is larger than u32::MAX.
         pub(self) has_large_size = 0x0100;
