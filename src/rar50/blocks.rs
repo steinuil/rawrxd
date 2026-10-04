@@ -675,7 +675,10 @@ pub struct RecoveryRecordServiceBlock {
 /// https://www.win-rar.com/faq-passwords.html?&L=0
 pub struct RecoveryRecordInfo {
     /// Percentage of the record size in relation to the archive.
-    pub percentage: u8,
+    ///
+    /// Stored as a single byte up to RAR 6.02 (max 99%) and as a vint
+    /// since RAR 6.10 (max 1000%).
+    pub percentage: u64,
 
     /// Usually two bytes, unrelated to the size of the archive.
     pub unknown: Vec<u8>,
@@ -683,7 +686,7 @@ pub struct RecoveryRecordInfo {
 
 impl RecoveryRecordInfo {
     fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        let percentage = read_u8(reader)?;
+        let (percentage, _) = read_vint(reader)?;
         let mut unknown = vec![];
         // Assumes we're reading from the cursor.
         reader.read_to_end(&mut unknown)?;
