@@ -483,6 +483,14 @@ impl FileBlock {
     }
 }
 
+impl Deref for FileBlock {
+    type Target = FileBlockFlags;
+
+    fn deref(&self) -> &Self::Target {
+        &self.flags
+    }
+}
+
 // TODO the service block has basically the same subheads
 // found in SubBlock, so we should parse them accordingly.
 #[derive(Debug)]
