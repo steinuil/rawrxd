@@ -354,7 +354,8 @@ impl FileBlockFlags {
         self.0 & WINDOW_MASK == WINDOW_DIRECTORY
     }
 
-    fn dictionary_size(self) -> Option<u64> {
+    /// Dictionary size needed to decompress the file, or `None` if the entry is a directory.
+    pub fn dictionary_size(self) -> Option<u64> {
         match self.0 & WINDOW_MASK {
             WINDOW_DIRECTORY => None,
             window => Some(0x10000 << (window >> 5)),
@@ -476,11 +477,6 @@ impl FileBlock {
 
         self.flags.is_directory() || has_dos_directory_attribute
     }
-
-    /// Dictionary size needed to decompress the file, or `None` if the entry is a directory.
-    pub fn dictionary_size(&self) -> Option<u64> {
-        self.flags.dictionary_size()
-    }
 }
 
 impl Deref for FileBlock {
@@ -580,7 +576,11 @@ flags! {
 }
 
 impl ServiceBlockFlags {
-    fn dictionary_size(self) -> Option<u64> {
+    /// Dictionary size needed to decompress the file.
+    // unrar applies the same logic for both file and service blocks,
+    // but since I don't think a service block can be applied to a directory,
+    // it's unclear what a `None` size means, semantically.
+    pub fn dictionary_size(self) -> Option<u64> {
         match self.0 & WINDOW_MASK {
             WINDOW_DIRECTORY => None,
             window => Some(0x10000 << (window >> 5)),
@@ -738,14 +738,6 @@ impl ServiceBlock {
             sub_data,
             salt,
         })
-    }
-
-    /// Dictionary size needed to decompress the file.
-    // unrar applies the same logic for both file and service blocks,
-    // but since I don't think a service block can be applied to a directory,
-    // it's unclear what a `None` size means, semantically.
-    pub fn dictionary_size(&self) -> Option<u64> {
-        self.flags.dictionary_size()
     }
 }
 
