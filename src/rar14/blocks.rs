@@ -128,12 +128,12 @@ impl MainBlock {
 
         let _unpacked_size = unpacked_size - 2;
 
-        let crypt_method = 1;
-        let unpack_version = 15;
-        let mut key13 = [0, 7, 77];
+        // let crypt_method = 1;
+        // let unpack_version = 15;
+        // let mut key13 = [0, 7, 77];
 
-        let mut old_dist = [!0, !0, !0, !0];
-        let mut old_dist_ptr = 0;
+        // let mut old_dist = [!0, !0, !0, !0];
+        // let mut old_dist_ptr = 0;
 
         // TODO unpack comment
 
