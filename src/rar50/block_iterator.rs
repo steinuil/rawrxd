@@ -58,3 +58,5 @@ impl<R: io::Read + io::Seek> Iterator for BlockIterator<R> {
         Some(block)
     }
 }
+
+impl<R: io::Read + io::Seek> std::iter::FusedIterator for BlockIterator<R> {}
