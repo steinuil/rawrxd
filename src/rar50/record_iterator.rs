@@ -16,7 +16,9 @@ pub struct RecordIterator<'a, R: io::Read + io::Seek> {
 impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
     pub fn new(reader: &'r mut R, extra_area_size: u64) -> io::Result<Self> {
         let offset = reader.stream_position()?;
-        let end_offset = offset + extra_area_size;
+        let end_offset = offset
+            .checked_add(extra_area_size)
+            .ok_or(io::ErrorKind::InvalidData)?;
         let next_record_offset = offset;
 
         Ok(Self {
@@ -33,9 +35,15 @@ impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
         let (record_size, byte_size) = read_vint(self.reader)?;
         let (record_type, type_byte_size) = read_vint(self.reader)?;
 
-        let data = read_vec(self.reader, record_size as usize - type_byte_size as usize)?;
+        let data_size = (record_size as usize)
+            .checked_sub(type_byte_size as usize)
+            .ok_or(io::ErrorKind::InvalidData)?;
 
-        self.next_record_offset += record_size + byte_size as u64;
+        let data = read_vec(self.reader, data_size)?;
+
+        self.next_record_offset += record_size
+            .checked_add(byte_size as u64)
+            .ok_or(io::ErrorKind::InvalidData)?;
 
         Ok(CommonRecord {
             record_type,
