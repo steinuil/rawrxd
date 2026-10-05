@@ -22,6 +22,8 @@ pub struct Block {
     /// Size of the header.
     pub header_size: u16,
 
+    generic_data_size: Option<u32>,
+
     /// Specific type of this block.
     pub kind: BlockKind,
 }
@@ -67,6 +69,10 @@ impl Block {
         let rest_size = header_size - Self::COMMON_HEADER_SIZE;
         let rest = read_vec(reader, rest_size as usize)?;
 
+        let generic_data_size = CommonFlags::new(flags)
+            .contains_data()
+            .then(|| read_u32(&mut &rest[..]).unwrap_or(0));
+
         let mut cursor = io::Cursor::new(&rest);
 
         let kind = match block_type {
@@ -105,6 +111,7 @@ impl Block {
             header_crc16,
             header_crc_ok,
             header_size,
+            generic_data_size,
             kind,
         })
     }
@@ -126,11 +133,8 @@ impl BlockSize for Block {
             BlockKind::Sub(b) => b.data_size as u64,
             BlockKind::Protect(b) => b.data_size as u64,
             BlockKind::Unknown(b) => b.data_size.unwrap_or(0) as u64,
-            BlockKind::Main(_)
-            | BlockKind::EndArchive(_)
-            | BlockKind::Comment(_)
-            | BlockKind::Av(_)
-            | BlockKind::Sign(_) => 0,
+            BlockKind::Av(_) | BlockKind::Sign(_) => self.generic_data_size.unwrap_or(0) as u64,
+            BlockKind::Main(_) | BlockKind::EndArchive(_) | BlockKind::Comment(_) => 0,
         }
     }
 }
