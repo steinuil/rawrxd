@@ -1,6 +1,8 @@
 use std::{io, ops::Deref};
 
-use crate::{checksum::Checksum as _, rar15::crc15, read::*, size::BlockSize, time_conv};
+use crate::{
+    checksum::Checksum as _, rar15::crc15, read::*, size::BlockSize, time_conv, Error, RarResult,
+};
 
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
 
@@ -49,7 +51,7 @@ impl Block {
 
     const COMMON_HEADER_SIZE: u16 = 7;
 
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> RarResult<Self> {
         let offset = reader.stream_position()?;
 
         let header_crc16 = read_u16(reader)?;
@@ -59,7 +61,7 @@ impl Block {
         let header_size = read_u16(reader)?;
 
         if header_size < Self::COMMON_HEADER_SIZE {
-            return Err(io::ErrorKind::InvalidData.into());
+            return Err(Error::CorruptHeader);
         }
 
         let rest_size = header_size - Self::COMMON_HEADER_SIZE;
@@ -716,7 +718,7 @@ impl ServiceBlock {
     const SIZE: usize = 32;
     const SALT_SIZE: usize = 8;
 
-    pub fn read<R: io::Read>(reader: &mut R, flags: u16, header_size: u16) -> io::Result<Self> {
+    pub fn read<R: io::Read>(reader: &mut R, flags: u16, header_size: u16) -> RarResult<Self> {
         let flags = ServiceBlockFlags::new(flags);
 
         let low_packed_data_size = read_u32(reader)? as u64;
@@ -781,11 +783,11 @@ impl ServiceBlock {
 
         let sub_data_size = (header_size as usize)
             .checked_sub(name_size)
-            .ok_or(io::ErrorKind::InvalidData)?
+            .ok_or(Error::CorruptHeader)?
             .checked_sub(Self::SIZE)
-            .ok_or(io::ErrorKind::InvalidData)?
+            .ok_or(Error::CorruptHeader)?
             .checked_sub(if flags.has_salt() { Self::SALT_SIZE } else { 0 })
-            .ok_or(io::ErrorKind::InvalidData)?;
+            .ok_or(Error::CorruptHeader)?;
 
         let sub_data = if sub_data_size > 0 {
             Some(read_vec(reader, sub_data_size)?)

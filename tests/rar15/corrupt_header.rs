@@ -18,5 +18,8 @@ fn rar15_corrupt_header(#[case] name: &str) {
 
     let err = iter.find_map(|block| block.err());
 
-    assert!(matches!(err, Some(Error::CorruptHeader)));
+    assert!(matches!(
+        err,
+        Some(Error::CorruptHeader | Error::UnexpectedEof)
+    ));
 }

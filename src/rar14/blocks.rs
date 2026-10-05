@@ -1,6 +1,6 @@
 use std::{io, ops::Deref};
 
-use crate::{rar14::checksum14::Checksum14, read::*, size::BlockSize, time_conv};
+use crate::{rar14::checksum14::Checksum14, read::*, size::BlockSize, time_conv, Error, RarResult};
 
 #[derive(Debug)]
 /// A generic RAR14 block.
@@ -80,12 +80,12 @@ impl MainBlock {
 
     const MIN_HEADER_SIZE: u16 = 7;
 
-    pub(super) fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+    pub(super) fn read<R: io::Read + io::Seek>(reader: &mut R) -> RarResult<Self> {
         let offset = reader.stream_position()?;
 
         let header_size = read_u16(reader)?;
         if header_size < Self::MIN_HEADER_SIZE {
-            return Err(io::ErrorKind::InvalidData.into());
+            return Err(Error::CorruptHeader);
         }
         let header_size = header_size - Self::SIGNATURE_SIZE;
 
@@ -228,7 +228,7 @@ flags! {
 impl FileBlock {
     const MIN_HEADER_SIZE: u16 = 21;
 
-    pub(super) fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<FileBlock> {
+    pub(super) fn read<R: io::Read + io::Seek>(reader: &mut R) -> RarResult<FileBlock> {
         let offset = reader.stream_position()?;
 
         let packed_data_size = read_u32(reader)?;
@@ -236,7 +236,7 @@ impl FileBlock {
         let unpacked_data_checksum = Checksum14(read_u16(reader)?);
         let header_size = read_u16(reader)?;
         if header_size < Self::MIN_HEADER_SIZE {
-            return Err(io::ErrorKind::InvalidData.into());
+            return Err(Error::CorruptHeader);
         }
 
         let modification_time = read_u32(reader)?;
