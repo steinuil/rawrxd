@@ -96,6 +96,9 @@ impl Signature {
         // Avoid reading the whole file in case we don't find the signature within MAX_SFX_SIZE.
         let bounded_reader = &mut reader.take(Self::MAX_SFX_SIZE);
 
+        // TODO RAR14 also wants RSFX at absolute offset RSFX, when its signature is not at offset 0.
+        // TODO apparently there's some new RAR50 signatures that we also need to handle
+
         match ac.stream_find_iter(bounded_reader).next() {
             None => Ok(None),
             Some(Err(e)) => Err(e),
@@ -108,8 +111,6 @@ impl Signature {
                     2 => Self::Rar50,
                     i => unreachable!("invalid Aho-Corasick pattern ID: {i}"),
                 };
-
-                // TODO RAR15 also wants RSFX at offset 28
 
                 Ok(Some((format, start as u64)))
             }
