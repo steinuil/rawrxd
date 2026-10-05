@@ -47,7 +47,7 @@ impl Block {
     const SERVICE: u8 = 0x7a;
     const ENDARC: u8 = 0x7b;
 
-    const COMMON_HEADER_SIZE: usize = 7;
+    const COMMON_HEADER_SIZE: u16 = 7;
 
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let offset = reader.stream_position()?;
@@ -58,8 +58,12 @@ impl Block {
         let flags = read_u16(reader)?;
         let header_size = read_u16(reader)?;
 
-        let rest_size = (header_size as usize).saturating_sub(Self::COMMON_HEADER_SIZE);
-        let rest = read_vec(reader, rest_size)?;
+        if header_size < Self::COMMON_HEADER_SIZE {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+
+        let rest_size = header_size - Self::COMMON_HEADER_SIZE;
+        let rest = read_vec(reader, rest_size as usize)?;
 
         let mut cursor = io::Cursor::new(&rest);
 
