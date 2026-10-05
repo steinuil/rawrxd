@@ -125,13 +125,9 @@ impl MainBlock {
             return Ok(None);
         }
 
-        let unpacked_size = read_u16(reader)?;
+        let _packed_size = size - 2;
 
-        if unpacked_size < 2 {
-            return Ok(None);
-        }
-
-        let _unpacked_size = unpacked_size - 2;
+        let _unpacked_size = read_u16(reader)?;
 
         // let crypt_method = 1;
         // let unpack_version = 15;
