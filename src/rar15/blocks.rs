@@ -261,6 +261,8 @@ impl From<u8> for EncryptionMethod {
 const WINDOW_MASK: u16 = 0x00e0;
 const WINDOW_DIRECTORY: u16 = 0x00e0;
 
+const FILE_SIZE_UNKNOWN: u64 = 0xffff_ffff;
+
 #[derive(Debug)]
 /// Block containing a file or a directory.
 ///
@@ -272,8 +274,8 @@ pub struct FileBlock {
     /// Size of the data section of the block.
     pub packed_data_size: u64,
 
-    /// Size of the file after decompression.
-    pub unpacked_data_size: u64,
+    /// Size of the file after decompression. `None` if it's unknown.
+    pub unpacked_data_size: Option<u64>,
 
     /// OS used to add this file the archive.
     pub host_os: HostOs,
@@ -411,12 +413,25 @@ impl FileBlock {
             let high_packed_data_size = read_u32(reader)? as u64;
             let high_unpacked_data_size = read_u32(reader)? as u64;
 
-            (
-                (high_packed_data_size << 32) | low_packed_data_size,
-                (high_unpacked_data_size << 32) | low_unpacked_data_size,
-            )
+            let packed_data_size = (high_packed_data_size << 32) | low_packed_data_size;
+
+            let unpacked_data_size = if high_unpacked_data_size == FILE_SIZE_UNKNOWN
+                && low_unpacked_data_size == FILE_SIZE_UNKNOWN
+            {
+                None
+            } else {
+                Some((high_unpacked_data_size << 32) | low_unpacked_data_size)
+            };
+
+            (packed_data_size, unpacked_data_size)
         } else {
-            (low_packed_data_size, low_unpacked_data_size)
+            let unpacked_data_size = if low_unpacked_data_size == FILE_SIZE_UNKNOWN {
+                None
+            } else {
+                Some(low_unpacked_data_size)
+            };
+
+            (low_packed_data_size, unpacked_data_size)
         };
 
         let file_name = read_vec(reader, name_size)?;
@@ -498,8 +513,8 @@ pub struct ServiceBlock {
     /// Size of the data section of the block.
     pub packed_data_size: u64,
 
-    /// Size of the data section after decompression.
-    pub unpacked_data_size: u64,
+    /// Size of the data section after decompression. `None` if it's unknown.
+    pub unpacked_data_size: Option<u64>,
 
     /// OS used to add this block to the archive.
     pub host_os: HostOs,
@@ -659,12 +674,25 @@ impl ServiceBlock {
             let high_packed_data_size = read_u32(reader)? as u64;
             let high_unpacked_data_size = read_u32(reader)? as u64;
 
-            (
-                (high_packed_data_size << 32) | low_packed_data_size,
-                (high_unpacked_data_size << 32) | low_unpacked_data_size,
-            )
+            let packed_data_size = (high_packed_data_size << 32) | low_packed_data_size;
+
+            let unpacked_data_size = if high_unpacked_data_size == FILE_SIZE_UNKNOWN
+                && low_unpacked_data_size == FILE_SIZE_UNKNOWN
+            {
+                None
+            } else {
+                Some((high_unpacked_data_size << 32) | low_unpacked_data_size)
+            };
+
+            (packed_data_size, unpacked_data_size)
         } else {
-            (low_packed_data_size, low_unpacked_data_size)
+            let unpacked_data_size = if low_unpacked_data_size == FILE_SIZE_UNKNOWN {
+                None
+            } else {
+                Some(low_unpacked_data_size)
+            };
+
+            (low_packed_data_size, unpacked_data_size)
         };
 
         let kind = read_vec(reader, name_size)?;
