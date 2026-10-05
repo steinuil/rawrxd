@@ -1,6 +1,6 @@
 use std::{io, ops::Deref};
 
-use crate::{read::*, size::BlockSize, time_conv};
+use crate::{bounded_reader::Bounded, read::*, size::BlockSize, time_conv};
 
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
 
@@ -43,13 +43,21 @@ impl Block {
     const SERVICE: u8 = 0x7a;
     const ENDARC: u8 = 0x7b;
 
+    const COMMON_HEADER_SIZE: u64 = 7;
+
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let offset = reader.stream_position()?;
 
         let header_crc16 = read_u16(reader)?;
+
         let block_type = read_u8(reader)?;
         let flags = read_u16(reader)?;
         let header_size = read_u16(reader)?;
+
+        let reader = &mut Bounded::new(
+            reader,
+            (header_size as u64).saturating_sub(Self::COMMON_HEADER_SIZE),
+        );
 
         let kind = match block_type {
             Self::MAIN => BlockKind::Main(MainBlock::read(reader, flags)?),
@@ -175,7 +183,7 @@ flags! {
 }
 
 impl MainBlock {
-    fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = MainBlockFlags::new(flags);
 
         let high_av_offset = read_u16(reader)? as u64;
@@ -387,7 +395,7 @@ impl FileBlock {
 
     const DOS_DIRECTORY_ATTRIBUTE: u32 = 0x10;
 
-    fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = FileBlockFlags::new(flags);
 
         let low_packed_data_size = read_u32(reader)? as u64;
@@ -649,11 +657,7 @@ impl ServiceBlock {
     const SIZE: usize = 32;
     const SALT_SIZE: usize = 8;
 
-    pub fn read<R: io::Read + io::Seek>(
-        reader: &mut R,
-        flags: u16,
-        header_size: u16,
-    ) -> io::Result<Self> {
+    pub fn read<R: io::Read>(reader: &mut R, flags: u16, header_size: u16) -> io::Result<Self> {
         let flags = ServiceBlockFlags::new(flags);
 
         let low_packed_data_size = read_u32(reader)? as u64;
@@ -806,7 +810,7 @@ pub struct CommentBlock {
 }
 
 impl CommentBlock {
-    fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let unpacked_data_size = read_u16(reader)?;
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
@@ -834,7 +838,7 @@ pub struct ProtectBlock {
 impl ProtectBlock {
     const MARK_SIZE: usize = 8;
 
-    fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let data_size = read_u32(reader)?;
         let version = read_u8(reader)?;
         let recovery_sectors = read_u16(reader)?;
@@ -875,7 +879,7 @@ pub struct UnixOwnerSubBlock {
 }
 
 impl UnixOwnerSubBlock {
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
         let user_size = read_u16(reader)?.clamp(0, NAME_MAX_SIZE - 1) as usize;
         let group_size = read_u16(reader)?.clamp(0, NAME_MAX_SIZE - 1) as usize;
         let user = read_vec(reader, user_size)?;
@@ -892,7 +896,7 @@ pub struct MacOsInfoSubBlock {
 }
 
 impl MacOsInfoSubBlock {
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
         let file_type = read_u16(reader)?;
         let file_creator = read_u16(reader)?;
 
@@ -921,10 +925,7 @@ pub enum ExtendedAttributesFs {
 }
 
 impl ExtendedAttributesSubBlock {
-    pub fn read<R: io::Read + io::Seek>(
-        reader: &mut R,
-        filesystem: ExtendedAttributesFs,
-    ) -> io::Result<Self> {
+    pub fn read<R: io::Read>(reader: &mut R, filesystem: ExtendedAttributesFs) -> io::Result<Self> {
         let unpacked_data_size = read_u32(reader)?;
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
@@ -950,7 +951,7 @@ pub struct NtfsStreamSubBlock {
 }
 
 impl NtfsStreamSubBlock {
-    pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
         let unpacked_data_size = read_u32(reader)?;
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
@@ -985,7 +986,7 @@ pub struct SubBlock {
 }
 
 impl SubBlock {
-    fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let data_size = read_u32(reader)?;
         let sub_type = read_u16(reader)?;
         let level = read_u8(reader)?;
@@ -1040,7 +1041,7 @@ pub struct SignBlock {
 }
 
 impl SignBlock {
-    fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let creation_time = read_u32(reader)?;
         let archive_name_size = read_u16(reader)?;
         let user_name_size = read_u16(reader)?;
@@ -1063,7 +1064,7 @@ pub struct AvBlock {
 }
 
 impl AvBlock {
-    fn read<R: io::Read + io::Seek>(reader: &mut R, _flags: u16) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, _flags: u16) -> io::Result<Self> {
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let av_version = read_u8(reader)?;
@@ -1114,7 +1115,7 @@ flags! {
 }
 
 impl EndArchiveBlock {
-    fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = EndArchiveBlockFlags::new(flags);
 
         let archive_data_crc32 = if flags.has_crc32() {
@@ -1161,7 +1162,7 @@ pub struct UnknownBlock {
 }
 
 impl UnknownBlock {
-    fn read<R: io::Read + io::Seek>(reader: &mut R, flags: u16, tag: u8) -> io::Result<Self> {
+    fn read<R: io::Read>(reader: &mut R, flags: u16, tag: u8) -> io::Result<Self> {
         let flags = CommonFlags::new(flags);
 
         let data_size = if flags.contains_data() {
