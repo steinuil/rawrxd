@@ -9,6 +9,7 @@ pub struct Block {
     pub offset: u64,
     pub flags: CommonFlags,
     pub header_crc32: u32,
+    pub header_crc_ok: bool,
     pub header_size: u64,
     pub extra_area_size: Option<u64>,
     pub data_size: Option<u64>,
@@ -64,22 +65,29 @@ impl Block {
     const CRYPT: u64 = 0x04;
     const ENDARC: u64 = 0x05;
 
+    const MIN_HEADER_SIZE: u64 = 7;
     const MAX_HEADER_SIZE: u64 = 0x200_000;
 
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let offset = reader.stream_position()?;
 
-        let header_crc32 = read_u32(reader)?;
+        // CRC32 followed by at most 3 bytes of vint, given by MAX_HEADER_SIZE.
+        let mut header = read_vec(reader, Self::MIN_HEADER_SIZE as usize)?;
 
-        let (header_size, vint_size) = read_vint(reader)?;
+        let header_crc32 = read_u32(&mut &header[..4])?;
+
+        let (header_size, vint_size) = read_vint(&mut &header[4..])?;
         if header_size == 0 || header_size > Self::MAX_HEADER_SIZE {
             return Err(io::ErrorKind::InvalidData.into());
         }
 
         let full_header_size = header_size + vint_size as u64 + 4;
 
-        // Create a new reader to ensure that we can't read past the header
-        let header = read_vec(reader, header_size as usize)?;
+        header.resize(full_header_size as usize, 0);
+        reader.read_exact(&mut header[7..])?;
+
+        let header_crc_ok = crc32fast::hash(&header) == header_crc32;
+
         let reader = &mut io::Cursor::new(header);
 
         let (header_type, _) = read_vint(reader)?;
@@ -117,6 +125,7 @@ impl Block {
             offset,
             flags,
             header_crc32,
+            header_crc_ok,
             header_size: full_header_size,
             extra_area_size,
             data_size,
