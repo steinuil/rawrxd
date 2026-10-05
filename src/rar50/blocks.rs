@@ -445,7 +445,7 @@ impl CompressionInfo {
         }
     }
 
-    /// File spans multiple volumes.
+    /// File uses solid compression.
     pub fn is_solid(&self) -> bool {
         self.0 & Self::SOLID_MASK != 0
     }
