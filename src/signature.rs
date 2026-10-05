@@ -109,6 +109,8 @@ impl Signature {
                     i => unreachable!("invalid Aho-Corasick pattern ID: {i}"),
                 };
 
+                // TODO RAR15 also wants RSFX at offset 28
+
                 Ok(Some((format, start as u64)))
             }
         }

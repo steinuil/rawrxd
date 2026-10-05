@@ -1147,6 +1147,8 @@ impl CryptBlock {
         let (flags, _) = read_vint(reader)?;
         let flags = CryptBlockFlags::new(flags as u16);
 
+        // TODO if flags.has_password_check() this header is encrypted
+
         let kdf_count = read_u8(reader)?;
         let salt = read_const_bytes(reader)?;
 
