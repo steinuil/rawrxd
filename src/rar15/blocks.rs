@@ -13,8 +13,12 @@ pub struct Block {
     /// Offset of this block from the start of the file.
     pub offset: u64,
 
-    /// CRC16 hash of the header.
+    /// Low 16 bytes of the CRC2 hash of the header.
     pub header_crc16: u16,
+
+    /// Whether the [`Self::header_crc16`] matches the bytes in the header.
+    /// `None` if the block skips the checksum.
+    pub header_crc_ok: Option<bool>,
 
     /// Size of the header.
     pub header_size: u16,
@@ -53,16 +57,14 @@ impl Block {
 
         let header_crc16 = read_u16(reader)?;
 
-        let reader: &mut Checksumming<'_, R, crc15::Hasher> = &mut Checksumming::new(reader);
+        let checksumming = &mut Checksumming::<'_, R, crc15::Hasher>::new(reader);
 
-        let block_type = read_u8(reader)?;
-        let flags = read_u16(reader)?;
-        let header_size = read_u16(reader)?;
-
-        let _common_header_crc16 = reader.checksum();
+        let block_type = read_u8(checksumming)?;
+        let flags = read_u16(checksumming)?;
+        let header_size = read_u16(checksumming)?;
 
         let reader = &mut Bounded::new(
-            reader,
+            checksumming,
             (header_size as u64).saturating_sub(Self::COMMON_HEADER_SIZE),
         );
 
@@ -79,9 +81,19 @@ impl Block {
             _ => BlockKind::Unknown(UnknownBlock::read(reader, flags, block_type)?),
         };
 
+        let header_crc_ok = match HeaderCrcRange::of(&kind) {
+            HeaderCrcRange::WholeHeader => {
+                io::copy(reader, &mut io::sink())?;
+                Some(checksumming.checksum() == header_crc16)
+            }
+            HeaderCrcRange::ParsedFields => Some(checksumming.checksum() == header_crc16),
+            HeaderCrcRange::Unchecked => None,
+        };
+
         Ok(Block {
             offset,
             header_crc16,
+            header_crc_ok,
             header_size,
             kind,
         })
@@ -109,6 +121,38 @@ impl BlockSize for Block {
             | BlockKind::Comment(_)
             | BlockKind::Av(_)
             | BlockKind::Sign(_) => 0,
+        }
+    }
+}
+
+enum HeaderCrcRange {
+    WholeHeader,
+    ParsedFields,
+    Unchecked,
+}
+
+impl HeaderCrcRange {
+    pub fn of(kind: &BlockKind) -> Self {
+        match kind {
+            BlockKind::Av(_)
+            | BlockKind::Sign(_)
+            | BlockKind::Sub(SubBlock {
+                kind: SubBlockKind::UnixOwner(_),
+                ..
+            }) => Self::Unchecked,
+
+            BlockKind::Main(b) if b.has_comment() => Self::ParsedFields,
+            BlockKind::File(b) if b.has_comment() => Self::ParsedFields,
+            BlockKind::Service(b) if b.has_comment() => Self::ParsedFields,
+            BlockKind::Comment(_) => Self::ParsedFields,
+
+            BlockKind::Main(_)
+            | BlockKind::File(_)
+            | BlockKind::Service(_)
+            | BlockKind::EndArchive(_)
+            | BlockKind::Protect(_)
+            | BlockKind::Sub(_)
+            | BlockKind::Unknown(_) => Self::WholeHeader,
         }
     }
 }

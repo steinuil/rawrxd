@@ -10,10 +10,6 @@ impl<'a, R: io::Read> Bounded<'a, R> {
     pub fn new(inner: &'a mut R, limit: u64) -> Self {
         Self { inner, limit }
     }
-
-    pub fn release(self) -> &'a mut R {
-        self.inner
-    }
 }
 
 impl<'a, R: io::Read> io::Read for Bounded<'a, R> {

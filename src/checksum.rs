@@ -14,7 +14,6 @@ pub trait Checksum {
 pub struct Checksumming<'a, R: io::Read, C: Checksum> {
     inner: &'a mut R,
     checksum: C,
-    frozen: bool,
 }
 
 impl<'a, R: io::Read, C: Checksum> Checksumming<'a, R, C> {
@@ -22,30 +21,18 @@ impl<'a, R: io::Read, C: Checksum> Checksumming<'a, R, C> {
         Self {
             inner,
             checksum: C::new(),
-            frozen: false,
         }
-    }
-
-    pub fn freeze(&mut self) {
-        self.frozen = true;
     }
 
     pub fn checksum(&self) -> C::Output {
         self.checksum.finish()
-    }
-
-    pub fn release(self) -> &'a mut R {
-        self.inner
     }
 }
 
 impl<'a, R: io::Read, C: Checksum> io::Read for Checksumming<'a, R, C> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.inner.read(buf)?;
-
-        if !self.frozen {
-            self.checksum.write(buf);
-        }
+        self.checksum.write(&buf[..n]);
 
         Ok(n)
     }
