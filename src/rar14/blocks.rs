@@ -1,6 +1,6 @@
 use std::{io, ops::Deref};
 
-use crate::{read::*, size::BlockSize, time_conv};
+use crate::{rar14::checksum14::Checksum14, read::*, size::BlockSize, time_conv};
 
 #[derive(Debug)]
 /// A generic RAR14 block.
@@ -186,8 +186,8 @@ pub struct FileBlock {
     /// Size of the file after unpacking.
     pub unpacked_data_size: u32,
 
-    /// CRC16 hash of the unpacked file.
-    pub crc16: u16,
+    /// Hash of the unpacked file.
+    pub checksum: Checksum14,
 
     /// Modification time of the file.
     ///
@@ -237,7 +237,7 @@ impl FileBlock {
 
         let packed_data_size = read_u32(reader)?;
         let unpacked_data_size = read_u32(reader)?;
-        let crc16 = read_u16(reader)?;
+        let checksum = Checksum14(read_u16(reader)?);
         let header_size = read_u16(reader)?;
         if header_size < Self::MIN_HEADER_SIZE {
             return Err(io::ErrorKind::InvalidData.into());
@@ -276,7 +276,7 @@ impl FileBlock {
             flags,
             packed_data_size,
             unpacked_data_size,
-            crc16,
+            checksum,
             modification_time,
             attributes,
             unpack_version,
