@@ -291,11 +291,13 @@ impl FileBlock {
 #[derive(Debug)]
 /// A string that was encoded using the host system's [OEM code page](https://en.wikipedia.org/wiki/Windows_code_page#OEM).
 pub enum OemString {
-    /// The string only contains characters in the ASCII range and can be safely decoded into UTF-8.
+    /// The string only contains characters in the ASCII range.
     Ascii(String),
 
     /// The string was encoded using the host system's OEM code page and cannot be decoded
-    /// correctly on its own. The user must select an encoding and use
+    /// correctly on its own.
+    ///
+    /// Callers must select an encoding and use
     /// [`encoding_rs`](https://crates.io/crates/encoding_rs) or
     /// [`oem_cp`](https://crates.io/crates/oem_cp) to decode it correctly.
     Oem(Vec<u8>),
