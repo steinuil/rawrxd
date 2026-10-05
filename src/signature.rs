@@ -55,7 +55,7 @@ impl Signature {
     /// the signature size.
     ///
     /// If the end of the signature exceeds this offset then this is not a valid RAR archive.
-    pub const MAX_SFX_SIZE: u64 = 0x200000;
+    pub const MAX_SFX_SIZE: u64 = 0x400000;
 
     /// Search for a RAR signature in the stream up to [`Signature::MAX_SFX_SIZE`] and return the
     /// format version and the offset of the signature in the file.
