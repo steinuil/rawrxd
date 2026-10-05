@@ -1,6 +1,9 @@
 use std::{io, ops::Deref};
 
-use crate::{bounded_reader::Bounded, read::*, size::BlockSize, time_conv};
+use crate::{
+    bounded_reader::Bounded, checksum::Checksumming, rar15::crc15, read::*, size::BlockSize,
+    time_conv,
+};
 
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
 
@@ -50,9 +53,13 @@ impl Block {
 
         let header_crc16 = read_u16(reader)?;
 
+        let reader: &mut Checksumming<'_, R, crc15::Hasher> = &mut Checksumming::new(reader);
+
         let block_type = read_u8(reader)?;
         let flags = read_u16(reader)?;
         let header_size = read_u16(reader)?;
+
+        let _common_header_crc16 = reader.checksum();
 
         let reader = &mut Bounded::new(
             reader,
