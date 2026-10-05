@@ -82,13 +82,16 @@ impl Block {
         }
 
         let full_header_size = header_size + vint_size as u64 + 4;
+        if full_header_size < Self::MIN_HEADER_SIZE {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
 
         header.resize(full_header_size as usize, 0);
         reader.read_exact(&mut header[7..])?;
 
-        let header_crc_ok = crc32fast::hash(&header) == header_crc32;
+        let header_crc_ok = crc32fast::hash(&header[4..]) == header_crc32;
 
-        let reader = &mut io::Cursor::new(header);
+        let reader = &mut io::Cursor::new(&header[4 + vint_size as usize..]);
 
         let (header_type, _) = read_vint(reader)?;
 
