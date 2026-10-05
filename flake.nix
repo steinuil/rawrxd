@@ -35,6 +35,7 @@
           "rust-src"
           "rustc"
           "rustfmt"
+          "llvm-tools"
         ];
 
         naerskBuildPackage = (pkgs.callPackage naersk { }).buildPackage;
@@ -54,6 +55,8 @@
 
           buildInputs = [
             pkgs.lldb
+            pkgs.libllvm.out
+            pkgs.cargo-binutils
             pkgs.cargo-llvm-cov
           ];
 
