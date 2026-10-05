@@ -1,9 +1,6 @@
 use std::{io, ops::Deref};
 
-use crate::{
-    bounded_reader::Bounded, checksum::Checksumming, rar15::crc15, read::*, size::BlockSize,
-    time_conv,
-};
+use crate::{checksum::Checksum as _, rar15::crc15, read::*, size::BlockSize, time_conv};
 
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
 
@@ -13,7 +10,7 @@ pub struct Block {
     /// Offset of this block from the start of the file.
     pub offset: u64,
 
-    /// Low 16 bytes of the CRC2 hash of the header.
+    /// Low 16 bytes of the CRC32 hash of the header.
     pub header_crc16: u16,
 
     /// Whether the [`Self::header_crc16`] matches the bytes in the header.
@@ -50,45 +47,52 @@ impl Block {
     const SERVICE: u8 = 0x7a;
     const ENDARC: u8 = 0x7b;
 
-    const COMMON_HEADER_SIZE: u64 = 7;
+    const COMMON_HEADER_SIZE: usize = 7;
 
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> io::Result<Self> {
         let offset = reader.stream_position()?;
 
         let header_crc16 = read_u16(reader)?;
 
-        let checksumming = &mut Checksumming::<'_, R, crc15::Hasher>::new(reader);
+        let block_type = read_u8(reader)?;
+        let flags = read_u16(reader)?;
+        let header_size = read_u16(reader)?;
 
-        let block_type = read_u8(checksumming)?;
-        let flags = read_u16(checksumming)?;
-        let header_size = read_u16(checksumming)?;
+        let rest_size = (header_size as usize).saturating_sub(Self::COMMON_HEADER_SIZE);
+        let rest = read_vec(reader, rest_size)?;
 
-        let reader = &mut Bounded::new(
-            checksumming,
-            (header_size as u64).saturating_sub(Self::COMMON_HEADER_SIZE),
-        );
+        let mut cursor = io::Cursor::new(&rest);
 
         let kind = match block_type {
-            Self::MAIN => BlockKind::Main(MainBlock::read(reader, flags)?),
-            Self::FILE => BlockKind::File(FileBlock::read(reader, flags)?),
-            Self::SERVICE => BlockKind::Service(ServiceBlock::read(reader, flags, header_size)?),
-            Self::COMMENT => BlockKind::Comment(CommentBlock::read(reader, flags)?),
-            Self::AV => BlockKind::Av(AvBlock::read(reader, flags)?),
-            Self::SUB => BlockKind::Sub(SubBlock::read(reader, flags)?),
-            Self::PROTECT => BlockKind::Protect(ProtectBlock::read(reader, flags)?),
-            Self::SIGN => BlockKind::Sign(SignBlock::read(reader, flags)?),
-            Self::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(reader, flags)?),
-            _ => BlockKind::Unknown(UnknownBlock::read(reader, flags, block_type)?),
+            Self::MAIN => BlockKind::Main(MainBlock::read(&mut cursor, flags)?),
+            Self::FILE => BlockKind::File(FileBlock::read(&mut cursor, flags)?),
+            Self::SERVICE => {
+                BlockKind::Service(ServiceBlock::read(&mut cursor, flags, header_size)?)
+            }
+            Self::COMMENT => BlockKind::Comment(CommentBlock::read(&mut cursor, flags)?),
+            Self::AV => BlockKind::Av(AvBlock::read(&mut cursor, flags)?),
+            Self::SUB => BlockKind::Sub(SubBlock::read(&mut cursor, flags)?),
+            Self::PROTECT => BlockKind::Protect(ProtectBlock::read(&mut cursor, flags)?),
+            Self::SIGN => BlockKind::Sign(SignBlock::read(&mut cursor, flags)?),
+            Self::ENDARC => BlockKind::EndArchive(EndArchiveBlock::read(&mut cursor, flags)?),
+            _ => BlockKind::Unknown(UnknownBlock::read(&mut cursor, flags, block_type)?),
         };
 
-        let header_crc_ok = match HeaderCrcRange::of(&kind) {
-            HeaderCrcRange::WholeHeader => {
-                io::copy(reader, &mut io::sink())?;
-                Some(checksumming.checksum() == header_crc16)
-            }
-            HeaderCrcRange::ParsedFields => Some(checksumming.checksum() == header_crc16),
+        let crc_end = match HeaderCrcRange::of(&kind) {
+            HeaderCrcRange::WholeHeader => Some(rest.len()),
+            HeaderCrcRange::ParsedFields => Some(cursor.position() as usize),
             HeaderCrcRange::Unchecked => None,
         };
+
+        let header_crc_ok = crc_end.map(|end| {
+            let mut hasher = crc15::Hasher::new();
+            hasher.write(&[block_type]);
+            hasher.write(&flags.to_le_bytes());
+            hasher.write(&header_size.to_le_bytes());
+            hasher.write(&rest[..end]);
+
+            hasher.finish() == header_crc16
+        });
 
         Ok(Block {
             offset,

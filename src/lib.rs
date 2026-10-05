@@ -39,6 +39,7 @@
 
 #[macro_use]
 mod macros;
+mod checksum;
 pub mod compat;
 mod error;
 pub mod rar14;
@@ -49,8 +50,6 @@ mod signature;
 mod size;
 mod time_conv;
 mod unpack;
-mod bounded_reader;
-mod checksum;
 
 pub use error::{Error, RarResult};
 pub use signature::Signature;
