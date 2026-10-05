@@ -183,7 +183,7 @@ pub struct FileBlock {
     pub unpacked_data_size: u32,
 
     /// Hash of the unpacked file.
-    pub checksum: Checksum14,
+    pub unpacked_data_checksum: Checksum14,
 
     /// Modification time of the file.
     ///
@@ -233,7 +233,7 @@ impl FileBlock {
 
         let packed_data_size = read_u32(reader)?;
         let unpacked_data_size = read_u32(reader)?;
-        let checksum = Checksum14(read_u16(reader)?);
+        let unpacked_data_checksum = Checksum14(read_u16(reader)?);
         let header_size = read_u16(reader)?;
         if header_size < Self::MIN_HEADER_SIZE {
             return Err(io::ErrorKind::InvalidData.into());
@@ -272,7 +272,7 @@ impl FileBlock {
             flags,
             packed_data_size,
             unpacked_data_size,
-            checksum,
+            unpacked_data_checksum,
             modification_time,
             attributes,
             unpack_version,
