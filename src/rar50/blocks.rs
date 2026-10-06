@@ -195,7 +195,7 @@ impl MainBlock {
     pub(self) fn read<R: io::Read + io::Seek>(
         reader: &mut R,
         common_header: &CommonHeader,
-    ) -> io::Result<Self> {
+    ) -> RarResult<Self> {
         let (flags, _) = read_vint(reader)?;
         let flags = MainBlockFlags::new(flags as u16);
 

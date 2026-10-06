@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::read::*;
+use crate::{read::*, Error, RarResult};
 
 pub struct CommonRecord {
     pub record_type: u64,
@@ -17,10 +17,10 @@ impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
     const SERVICE_DATA: u64 = 0x07;
     const MIN_RECORD_SIZE: u64 = 2;
 
-    pub fn new(reader: &'r mut R, header_size: u64, extra_area_size: u64) -> io::Result<Self> {
+    pub fn new(reader: &'r mut R, header_size: u64, extra_area_size: u64) -> RarResult<Self> {
         let start = header_size
             .checked_sub(extra_area_size)
-            .ok_or(io::ErrorKind::InvalidData)?;
+            .ok_or(Error::CorruptHeader)?;
 
         // We expect this record iterator to be called from exactly the start of the extra fields.
         // If the position doesn't match, the extra area overlaps the header, or we
@@ -28,7 +28,7 @@ impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
         //
         // unrar seems to just ignore the extra area in this case.
         if reader.stream_position()? > start {
-            return Err(io::ErrorKind::InvalidData.into());
+            return Err(Error::CorruptHeader);
         }
 
         Ok(Self {
@@ -38,7 +38,7 @@ impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
         })
     }
 
-    fn read_record(&mut self) -> io::Result<CommonRecord> {
+    fn read_record(&mut self) -> RarResult<CommonRecord> {
         self.reader
             .seek(io::SeekFrom::Start(self.next_record_offset))?;
 
@@ -47,13 +47,13 @@ impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
         let record_start = self
             .next_record_offset
             .checked_add(size_byte_size as u64)
-            .ok_or(io::ErrorKind::InvalidData)?;
+            .ok_or(Error::CorruptHeader)?;
         let record_end = record_start
             .checked_add(record_size)
-            .ok_or(io::ErrorKind::InvalidData)?;
+            .ok_or(Error::CorruptHeader)?;
 
         if record_size == 0 || record_end > self.end_offset {
-            return Err(io::ErrorKind::InvalidData.into());
+            return Err(Error::CorruptHeader);
         }
 
         let (record_type, type_byte_size) = read_vint(self.reader)?;
@@ -67,7 +67,7 @@ impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
 
         let data_size = record_end
             .checked_sub(record_start + type_byte_size as u64)
-            .ok_or(io::ErrorKind::InvalidData)?;
+            .ok_or(Error::CorruptHeader)?;
 
         let data = read_vec(self.reader, data_size as usize)?;
 
@@ -81,7 +81,7 @@ impl<'r, R: io::Read + io::Seek> RecordIterator<'r, R> {
 }
 
 impl<R: io::Read + io::Seek> Iterator for RecordIterator<'_, R> {
-    type Item = io::Result<CommonRecord>;
+    type Item = RarResult<CommonRecord>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.end_offset.saturating_sub(self.next_record_offset) < Self::MIN_RECORD_SIZE {
