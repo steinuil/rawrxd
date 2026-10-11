@@ -1,9 +1,30 @@
+use crate::unpack::bit_input::BitInput;
+
 const MAX_QUICK_DECODE_BITS: usize = 9;
 const LARGEST_TABLE_SIZE: usize = 306;
 
 const NC: u32 = 0;
 const NC20: u32 = 298;
 const NC30: u32 = 299;
+
+const BC: usize = 20;
+const DCB: usize = 64;
+const DCX: usize = 80;
+const LDC: usize = 16;
+const RC: usize = 44;
+
+const HUFF_TABLE_SIZEB: usize = NC as usize + DCB + RC + LDC;
+const HUFF_TABLE_SIZEX: usize = NC as usize + DCX + RC + LDC;
+
+#[derive(Debug, Clone)]
+pub struct UnpackBlockHeader {
+    pub block_size: i32,
+    pub block_bit_size: i32,
+    pub block_start: i32,
+    pub header_size: i32,
+    pub last_block_in_file: bool,
+    pub table_present: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct DecodeTable {
@@ -30,8 +51,61 @@ impl Default for DecodeTable {
     }
 }
 
+#[derive(Default)]
+pub struct BlockTables {
+    ld: DecodeTable,
+    dd: DecodeTable,
+    ldd: DecodeTable,
+    rd: DecodeTable,
+    bd: DecodeTable,
+}
+
 impl DecodeTable {
-    pub fn make(length_table: &[u8], dec: &mut DecodeTable, size: u32) -> u32 {
+    pub fn read_tables(
+        inp: &mut BitInput,
+        header: &UnpackBlockHeader,
+        tables: &mut BlockTables,
+        extra_dist: bool,
+    ) {
+        let mut bit_length = [0u8; BC];
+
+        for mut i in 0..BC {
+            let length: u32 = ((inp.get_bits16() >> 16) as u8) as u32;
+            inp.add_bits(4);
+
+            if length == 15 {
+                let mut zero_count = ((inp.get_bits16() >> 16) as u8) as u32;
+                inp.add_bits(4);
+                if zero_count == 0 {
+                    bit_length[i] = 15;
+                } else {
+                    zero_count += 2;
+                    while {
+                        zero_count -= 1;
+                        zero_count
+                    } > 0
+                        && i < bit_length.len()
+                    {
+                        bit_length[i] = 0;
+                        i += 1;
+                    }
+                }
+            } else {
+                bit_length[i] = length as u8;
+            }
+        }
+
+        DecodeTable::make(&bit_length, &mut tables.bd, BC as u32);
+
+        let mut table = [0u8; HUFF_TABLE_SIZEX];
+        let table = if extra_dist {
+            &mut table[..]
+        } else {
+            &mut table[..HUFF_TABLE_SIZEB]
+        };
+    }
+
+    pub fn make(length_table: &[u8], dec: &mut DecodeTable, size: u32) {
         // Size of alphabet and DecodePos array.
         dec.max_num = size;
 
