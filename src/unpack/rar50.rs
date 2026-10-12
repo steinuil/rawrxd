@@ -198,6 +198,7 @@ impl UnpackFilter {
 
                 Some(data)
             }
+
             FilterKind::Arm => {
                 // 2019-11-15: we turned off ARM filter by default when compressing,
                 // mostly because it is inefficient for modern 64 bit ARM binaries.
@@ -205,22 +206,14 @@ impl UnpackFilter {
                 // here for compatibility with some of previously created archives.
                 let file_offset = written_file_size as u32;
 
-                // DataSize is unsigned, so we use "CurPos+3" and not "DataSize-3"
-                // to avoid overflow for DataSize<3.
-                let mut cur_pos: u32 = 0;
-                while cur_pos + 3 < data_size {
-                    let d = &mut data[cur_pos as usize..];
-                    if d[3] == 0xeb {
-                        // BL command with '1110' (Always) condition.
-                        let mut offset =
-                            d[0] as u32 + (d[1] as u32) * 0x100 + (d[2] as u32) * 0x10000;
-                        offset = offset.wrapping_sub(file_offset.wrapping_add(cur_pos) / 4);
-                        d[0] = offset as u8;
-                        d[1] = (offset >> 8) as u8;
-                        d[2] = (offset >> 16) as u8;
+                for (i, instr) in data.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                    // BL command with '1110' (Always) condition.
+                    if instr[3] == 0xeb {
+                        let pos = file_offset.wrapping_add(i as u32 * 4);
+                        let offset = u32::from_le_bytes([instr[0], instr[1], instr[2], 0])
+                            .wrapping_sub(pos / 4);
+                        instr[..3].copy_from_slice(&offset.to_le_bytes()[..3]);
                     }
-
-                    cur_pos += 4;
                 }
 
                 Some(data)
