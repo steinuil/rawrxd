@@ -17,16 +17,6 @@ const HUFF_TABLE_SIZEB: usize = NC as usize + DCB + RC + LDC;
 const HUFF_TABLE_SIZEX: usize = NC as usize + DCX + RC + LDC;
 
 #[derive(Debug, Clone)]
-pub struct UnpackBlockHeader {
-    pub block_size: i32,
-    pub block_bit_size: i32,
-    pub block_start: i32,
-    pub header_size: i32,
-    pub last_block_in_file: bool,
-    pub table_present: bool,
-}
-
-#[derive(Debug, Clone)]
 pub struct DecodeTable {
     max_num: u32,
     decode_len: [u32; 16],
@@ -61,12 +51,9 @@ pub struct BlockTables {
 }
 
 impl DecodeTable {
-    pub fn read_tables(
-        inp: &mut BitInput,
-        header: &UnpackBlockHeader,
-        tables: &mut BlockTables,
-        extra_dist: bool,
-    ) -> bool {
+    pub fn read_tables(inp: &mut BitInput, tables: &mut BlockTables, extra_dist: bool) -> bool {
+        // NOTE unrar returns true when !Header.TablePresent
+
         let mut bit_length = [0u8; BC];
 
         let mut i = 0;
@@ -164,9 +151,7 @@ impl DecodeTable {
             }
         }
 
-        // TODO
-        // if (!Inp.ExternalBuffer && Inp.InAddr>ReadTop)
-        //   return false;
+        // NOTE unrar sets TablesRead5=true;
 
         Self::make(&table[..], &mut tables.ld, NC);
         let d_codes = if extra_dist { DCX } else { DCB } as u32;
