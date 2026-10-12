@@ -85,7 +85,7 @@ impl Deref for UnpackBlockHeader {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterKind {
-    Delta { channels: u8 },
+    Delta { channels: NonZero<u8> },
     E8,
     E8E9,
     Arm,
@@ -122,7 +122,7 @@ impl UnpackFilter {
 
         let kind = match inp.read_u8(3) {
             0 => {
-                let channels = inp.read_u8(5) + 1;
+                let channels = NonZero::<u8>::MIN.saturating_add(inp.read_u8(5));
                 FilterKind::Delta { channels }
             }
             1 => FilterKind::E8,
@@ -207,7 +207,7 @@ impl UnpackFilter {
             }
 
             FilterKind::Delta { channels } => {
-                let channels = channels as usize;
+                let channels = channels.get() as usize;
 
                 dst.clear();
                 dst.resize(data.len(), 0);
