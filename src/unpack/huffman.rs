@@ -3,7 +3,7 @@ use crate::unpack::bit_input::BitInput;
 const MAX_QUICK_DECODE_BITS: usize = 9;
 const LARGEST_TABLE_SIZE: usize = 306;
 
-const NC: u32 = 0;
+const NC: u32 = 306;
 const NC20: u32 = 298;
 const NC30: u32 = 299;
 
@@ -69,23 +69,23 @@ impl DecodeTable {
     ) -> bool {
         let mut bit_length = [0u8; BC];
 
-        for mut i in 0..BC {
-            let length: u32 = ((inp.get_bits16() >> 16) as u8) as u32;
+        let mut i = 0;
+        while i < BC {
+            let length: u32 = ((inp.get_bits16() >> 12) as u8) as u32;
             inp.add_bits(4);
 
             if length == 15 {
-                let mut zero_count = ((inp.get_bits16() >> 16) as u8) as u32;
+                let mut zero_count = ((inp.get_bits16() >> 12) as u8) as u32;
                 inp.add_bits(4);
                 if zero_count == 0 {
                     bit_length[i] = 15;
                 } else {
                     zero_count += 2;
                     while {
+                        let old_zero_count = zero_count;
                         zero_count -= 1;
-                        zero_count
-                    } > 0
-                        && i < bit_length.len()
-                    {
+                        old_zero_count > 0 && i < bit_length.len()
+                    } {
                         bit_length[i] = 0;
                         i += 1;
                     }
@@ -93,6 +93,8 @@ impl DecodeTable {
             } else {
                 bit_length[i] = length as u8;
             }
+
+            i += 1;
         }
 
         DecodeTable::make(&bit_length, &mut tables.bd, BC as u32);
@@ -182,7 +184,7 @@ impl DecodeTable {
         true
     }
 
-    pub fn decode_number(&mut self, inp: &mut BitInput) -> u32 {
+    pub fn decode_number(&self, inp: &mut BitInput) -> u32 {
         // Left aligned 15 bit length raw bit field.
         let bit_field: u32 = inp.get_bits16() & 0xfffe;
 
@@ -351,7 +353,5 @@ impl DecodeTable {
                 dec.quick_num[code as usize] = 0;
             }
         }
-
-        todo!()
     }
 }

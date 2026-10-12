@@ -24,7 +24,7 @@ impl BitInput {
     pub fn add_bits(&mut self, bits: u32) {
         let bits = bits + self.bit;
         self.addr += (bits >> 3) as usize;
-        self.bit = bits & 0xb111
+        self.bit = bits & 0b111
     }
 
     /// Gets the next 16 bits.
