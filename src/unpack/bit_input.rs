@@ -40,11 +40,34 @@ impl BitInput {
         self.bit = bits & 0b111
     }
 
-    /// Reads the next u8 and advances the cursor by 8 bits.
-    pub fn read_u8(&mut self) -> u8 {
+    /// Reads `bits` bits into a `u8` and advances the cursor.
+    pub fn read_u8(&mut self, bits: u32) -> u8 {
+        assert!((1..=8).contains(&bits));
+
         let field = u16::from_be_bytes([self.buf[self.addr], self.buf[self.addr + 1]]);
-        self.addr += 1;
-        (field >> (8 - self.bit)) as u8
+        let value = ((field << self.bit) >> (16 - bits)) as u8;
+        self.add_bits(bits);
+        value
+    }
+
+    pub fn read_u16_be(&mut self, bits: u32) -> u16 {
+        assert!((1..=16).contains(&bits));
+
+        let b = &self.buf[self.addr..self.addr + 3];
+        let field = u32::from_be_bytes([b[0], b[1], b[2], 0]);
+        let value = ((field << self.bit) >> (32 - bits)) as u16;
+        self.add_bits(bits);
+        value
+    }
+
+    pub fn read_u32_be(&mut self, bits: u32) -> u32 {
+        assert!((1..=32).contains(&bits));
+
+        let b = &self.buf[self.addr..self.addr + 5];
+        let field = u64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], 0, 0, 0]);
+        let value = ((field << self.bit) >> (32 - bits)) as u32;
+        self.add_bits(bits);
+        value
     }
 
     /// Gets the next 16 bits.

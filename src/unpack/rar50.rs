@@ -13,17 +13,16 @@ impl UnpackBlockHeader {
     pub fn read(inp: &mut BitInput) -> Option<Self> {
         inp.align_to_byte();
 
-        let flags = UnpackBlockHeaderFlags(inp.read_u8());
+        let flags = UnpackBlockHeaderFlags(inp.read_u8(8));
 
         if flags.header_size() == 6 {
             return None;
         }
 
-        let expected_checksum = inp.read_u8();
+        let expected_checksum = inp.read_u8(8);
 
-        let block_size =
-            inp.get_bits32().swap_bytes() & ((1 << (flags.block_size_byte_count() * 8)) - 1);
-        inp.add_bits(flags.block_size_byte_count() as u32 * 8);
+        let bits = flags.block_size_byte_count() as u32 * 8;
+        let block_size = inp.read_u32_be(bits).swap_bytes() >> (32 - bits);
 
         let checksum = 0x5a ^ flags.0 ^ block_size.to_le_bytes().into_iter().fold(0, |a, b| a ^ b);
 
@@ -51,22 +50,27 @@ impl UnpackBlockHeaderFlags {
     const LAST_BLOCK_IN_FILE: u8 = 0x40;
     const TABLE_PRESENT: u8 = 0x80;
 
+    #[inline]
     fn block_size_byte_count(self) -> usize {
         (((self.0 >> 3) & 0b11) + 1) as usize
     }
 
+    #[inline]
     pub fn header_size(self) -> usize {
         self.block_size_byte_count() + 2
     }
 
+    #[inline]
     pub fn block_bit_size(self) -> usize {
         ((self.0 & 0b111) + 1) as usize
     }
 
+    #[inline]
     pub fn is_last_block_in_file(self) -> bool {
         self.0 & Self::LAST_BLOCK_IN_FILE != 0
     }
 
+    #[inline]
     pub fn has_table(self) -> bool {
         self.0 & Self::TABLE_PRESENT != 0
     }
