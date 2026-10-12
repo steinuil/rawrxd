@@ -83,12 +83,13 @@ impl DecodeTable {
                     zero_count += 2;
                     while {
                         let old_zero_count = zero_count;
-                        zero_count -= 1;
+                        zero_count = zero_count.wrapping_sub(1);
                         old_zero_count > 0 && i < bit_length.len()
                     } {
                         bit_length[i] = 0;
                         i += 1;
                     }
+                    i -= 1;
                 }
             } else {
                 bit_length[i] = length as u8;
@@ -134,7 +135,7 @@ impl DecodeTable {
                     } else {
                         while {
                             let old_n = n;
-                            n -= 1;
+                            n = n.wrapping_sub(1);
                             old_n > 0 && i < table.len()
                         } {
                             table[i] = table[i - 1];
@@ -153,7 +154,7 @@ impl DecodeTable {
 
                     while {
                         let old_n = n;
-                        n -= 1;
+                        n = n.wrapping_sub(1);
                         old_n > 0 && i < table.len()
                     } {
                         table[i] = 0;
