@@ -82,3 +82,68 @@ impl Deref for UnpackBlockHeader {
         &self.flags
     }
 }
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterKind {
+    Delta = 0,
+    E8 = 1,
+    E8E9 = 2,
+    Arm = 3,
+    Audio = 4,
+    Rgb = 5,
+    Itanium = 6,
+    Text = 7,
+}
+
+pub struct UnpackFilter {
+    kind: FilterKind,
+    channels: Option<u8>,
+    next_window: bool,
+    block_start: usize,
+    block_length: u32,
+}
+
+fn read_filter_data(inp: &mut BitInput) -> u32 {
+    let byte_count = inp.read_u8(2) + 1;
+    inp.read_u32_le(byte_count as u32 * 8)
+}
+
+impl UnpackFilter {
+    const MAX_BLOCK_SIZE: u32 = 0x400000;
+
+    pub fn read(inp: &mut BitInput) -> Self {
+        let block_start = read_filter_data(inp) as usize;
+        let block_length = read_filter_data(inp);
+        let block_length = if block_length > Self::MAX_BLOCK_SIZE {
+            0
+        } else {
+            block_length
+        };
+
+        let kind = match inp.read_u8(3) {
+            0 => FilterKind::Delta,
+            1 => FilterKind::E8,
+            2 => FilterKind::E8E9,
+            3 => FilterKind::Arm,
+            4 => FilterKind::Audio,
+            5 => FilterKind::Rgb,
+            6 => FilterKind::Itanium,
+            7 => FilterKind::Text,
+            _ => unreachable!("three bits"),
+        };
+
+        let channels = match kind {
+            FilterKind::Delta => Some(inp.read_u8(5) + 1),
+            _ => None,
+        };
+
+        Self {
+            kind,
+            channels,
+            next_window: false,
+            block_start,
+            block_length,
+        }
+    }
+}
