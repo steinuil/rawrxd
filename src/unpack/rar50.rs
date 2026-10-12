@@ -149,51 +149,38 @@ impl UnpackFilter {
         written_file_size: u64,
         dst: &'a mut Vec<u8>,
     ) -> Option<&'a [u8]> {
-        let data_size = data.len() as u32;
-
         match self.kind {
             FilterKind::E8 | FilterKind::E8E9 => {
                 let file_offset = written_file_size as u32;
 
-                const FILE_SIZE: u32 = 0x1000000;
+                const FILE_SIZE: i32 = 0x1000000;
                 let cmp_byte2: u8 = if self.kind == FilterKind::E8E9 {
                     0xe9
                 } else {
                     0xe8
                 };
-                // DataSize is unsigned, so we use "CurPos+4" and not "DataSize-4"
-                // to avoid overflow for DataSize<4.
-                let mut data_pos: usize = 0;
-                let mut cur_pos: u32 = 0;
-                while cur_pos + 4 < data_size {
-                    let cur_byte = data[data_pos];
-                    data_pos += 1;
-                    cur_pos += 1;
 
-                    if cur_byte == 0xe8 || cur_byte == cmp_byte2 {
-                        let offset = cur_pos.wrapping_add(file_offset) % FILE_SIZE;
-                        let addr = u32::from_le_bytes([
-                            data[data_pos],
-                            data[data_pos + 1],
-                            data[data_pos + 2],
-                            data[data_pos + 3],
-                        ]);
-
-                        // We check 0x80000000 bit instead of '< 0' comparison
-                        // not assuming int32 presence or uint size and endianness.
-                        if (addr & 0x80000000) != 0 {
-                            if (addr.wrapping_add(offset) & 0x80000000) == 0 {
-                                data[data_pos..data_pos + 4]
-                                    .copy_from_slice(&addr.wrapping_add(FILE_SIZE).to_le_bytes());
-                            }
-                        } else if (addr.wrapping_sub(FILE_SIZE) & 0x80000000) != 0 {
-                            data[data_pos..data_pos + 4]
-                                .copy_from_slice(&addr.wrapping_sub(offset).to_le_bytes())
-                        }
-
-                        data_pos += 4;
-                        cur_pos += 4;
+                let mut i = 0;
+                while i + 4 < data.len() {
+                    let cur_byte = data[i];
+                    i += 1;
+                    if cur_byte != 0xe8 && cur_byte != cmp_byte2 {
+                        continue;
                     }
+
+                    let offset = (file_offset.wrapping_add(i as u32) % FILE_SIZE as u32) as i32;
+                    let field = &mut data[i..i + 4];
+                    let addr = i32::from_le_bytes(field.try_into().unwrap());
+
+                    if addr < 0 {
+                        if addr + offset >= 0 {
+                            field.copy_from_slice(&(addr + FILE_SIZE).to_le_bytes());
+                        }
+                    } else if addr < FILE_SIZE {
+                        field.copy_from_slice(&(addr - offset).to_le_bytes());
+                    }
+
+                    i += 4;
                 }
 
                 Some(data)
