@@ -147,6 +147,118 @@ impl UnpackFilter {
             block_length,
         }
     }
+
+    pub fn apply<'a>(
+        &self,
+        data: &'a mut [u8],
+        written_file_size: u64,
+        mut filter_dst_memory: &'a mut Vec<u8>,
+    ) -> Option<&'a [u8]> {
+        let data_size = data.len() as u32;
+
+        match self.kind {
+            FilterKind::E8 | FilterKind::E8E9 => {
+                let file_offset = written_file_size as u32;
+
+                const FILE_SIZE: u32 = 0x1000000;
+                let cmp_byte2: u8 = if self.kind == FilterKind::E8E9 {
+                    0xe9
+                } else {
+                    0xe8
+                };
+                // DataSize is unsigned, so we use "CurPos+4" and not "DataSize-4"
+                // to avoid overflow for DataSize<4.
+                let mut data_pos: usize = 0;
+                let mut cur_pos: u32 = 0;
+                while cur_pos + 4 < data_size {
+                    let cur_byte = data[data_pos];
+                    data_pos += 1;
+                    cur_pos += 1;
+
+                    if cur_byte == 0xe8 || cur_byte == cmp_byte2 {
+                        let offset = cur_pos.wrapping_add(file_offset) % FILE_SIZE;
+                        let addr = u32::from_le_bytes([
+                            data[data_pos],
+                            data[data_pos + 1],
+                            data[data_pos + 2],
+                            data[data_pos + 3],
+                        ]);
+
+                        // We check 0x80000000 bit instead of '< 0' comparison
+                        // not assuming int32 presence or uint size and endianness.
+                        if (addr & 0x80000000) != 0 {
+                            if (addr.wrapping_add(offset) & 0x80000000) == 0 {
+                                data[data_pos..data_pos + 4]
+                                    .copy_from_slice(&addr.wrapping_add(FILE_SIZE).to_le_bytes());
+                            }
+                        } else if (addr.wrapping_sub(FILE_SIZE) & 0x80000000) != 0 {
+                            data[data_pos..data_pos + 4]
+                                .copy_from_slice(&addr.wrapping_sub(offset).to_le_bytes())
+                        }
+
+                        data_pos += 4;
+                        cur_pos += 4;
+                    }
+                }
+
+                Some(data)
+            }
+            FilterKind::Arm => {
+                // 2019-11-15: we turned off ARM filter by default when compressing,
+                // mostly because it is inefficient for modern 64 bit ARM binaries.
+                // It was turned on by default in 5.0 - 5.80b3 , so we still need it
+                // here for compatibility with some of previously created archives.
+                let file_offset = written_file_size as u32;
+
+                // DataSize is unsigned, so we use "CurPos+3" and not "DataSize-3"
+                // to avoid overflow for DataSize<3.
+                let mut cur_pos: u32 = 0;
+                while cur_pos + 3 < data_size {
+                    let d = &mut data[cur_pos as usize..];
+                    if d[3] == 0xeb {
+                        // BL command with '1110' (Always) condition.
+                        let mut offset =
+                            d[0] as u32 + (d[1] as u32) * 0x100 + (d[2] as u32) * 0x10000;
+                        offset = offset.wrapping_sub(file_offset.wrapping_add(cur_pos) / 4);
+                        d[0] = offset as u8;
+                        d[1] = (offset >> 8) as u8;
+                        d[2] = (offset >> 16) as u8;
+                    }
+
+                    cur_pos += 4;
+                }
+
+                Some(data)
+            }
+            FilterKind::Delta => {
+                // Unlike RAR3, we do not need to reject excessive channel
+                // values here, since RAR5 uses only 5 bits to store channel.
+                let channels = self.channels.map_or_default(|n| n.get()) as u32;
+                let mut src_pos: usize = 0;
+
+                filter_dst_memory.resize(data_size as usize, 0);
+                let dst_data = &mut filter_dst_memory;
+
+                // Bytes from same channels are grouped to continual data blocks,
+                // so we need to place them back to their interleaving positions.
+                for cur_channel in 0..channels {
+                    let mut prev_byte: u8 = 0;
+                    let mut dest_pos: u32 = cur_channel;
+
+                    while dest_pos < data_size {
+                        prev_byte = prev_byte.wrapping_sub(data[src_pos]);
+                        dst_data[dest_pos as usize] = prev_byte;
+
+                        src_pos += 1;
+                        dest_pos += channels;
+                    }
+                }
+
+                Some(filter_dst_memory)
+            }
+            _ => None,
+        }
+    }
 }
 
 fn slot_to_length(inp: &mut BitInput, slot: u32) -> u32 {
