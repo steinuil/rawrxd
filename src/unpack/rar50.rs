@@ -21,8 +21,7 @@ impl UnpackBlockHeader {
 
         let expected_checksum = inp.read_u8(8);
 
-        let bits = flags.block_size_byte_count() as u32 * 8;
-        let block_size = inp.read_u32_be(bits).swap_bytes() >> (32 - bits);
+        let block_size = inp.read_u32_le(flags.block_size_byte_count() as u32 * 8);
 
         let checksum = 0x5a ^ flags.0 ^ block_size.to_le_bytes().into_iter().fold(0, |a, b| a ^ b);
 

@@ -70,6 +70,12 @@ impl BitInput {
         value
     }
 
+    pub fn read_u32_le(&mut self, bits: u32) -> u32 {
+        assert!(bits.is_multiple_of(8) && (8..=32).contains(&bits));
+
+        self.read_u32_be(bits).swap_bytes() >> (32 - bits)
+    }
+
     /// Gets the next 16 bits.
     ///
     /// The bit at the current position is the most significant.
