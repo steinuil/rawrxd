@@ -86,9 +86,9 @@ impl Deref for UnpackBlockHeader {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterKind {
     Delta { channels: NonZero<u8> },
-    E8,
-    E8E9,
-    Arm,
+    X86Call,
+    X86CallJmp,
+    ArmBl,
     Audio,
     Rgb,
     Itanium,
@@ -111,6 +111,9 @@ fn read_filter_data(inp: &mut BitInput) -> u32 {
 impl UnpackFilter {
     const MAX_BLOCK_SIZE: u32 = 0x400000;
 
+    const CALL_REL32: u8 = 0xe8;
+    const JMP_REL32: u8 = 0xe9;
+
     pub fn read(inp: &mut BitInput) -> Self {
         let block_start = read_filter_data(inp) as usize;
         let block_length = read_filter_data(inp);
@@ -125,9 +128,9 @@ impl UnpackFilter {
                 let channels = NonZero::<u8>::MIN.saturating_add(inp.read_u8(5));
                 FilterKind::Delta { channels }
             }
-            1 => FilterKind::E8,
-            2 => FilterKind::E8E9,
-            3 => FilterKind::Arm,
+            1 => FilterKind::X86Call,
+            2 => FilterKind::X86CallJmp,
+            3 => FilterKind::ArmBl,
             4 => FilterKind::Audio,
             5 => FilterKind::Rgb,
             6 => FilterKind::Itanium,
@@ -150,21 +153,21 @@ impl UnpackFilter {
         dst: &'a mut Vec<u8>,
     ) -> Option<&'a [u8]> {
         match self.kind {
-            FilterKind::E8 | FilterKind::E8E9 => {
+            FilterKind::X86Call | FilterKind::X86CallJmp => {
                 let file_offset = written_file_size as u32;
 
                 const FILE_SIZE: i32 = 0x1000000;
-                let cmp_byte2: u8 = if self.kind == FilterKind::E8E9 {
-                    0xe9
+                let cmp_byte2: u8 = if self.kind == FilterKind::X86CallJmp {
+                    Self::JMP_REL32
                 } else {
-                    0xe8
+                    Self::CALL_REL32
                 };
 
                 let mut i = 0;
                 while i + 4 < data.len() {
                     let cur_byte = data[i];
                     i += 1;
-                    if cur_byte != 0xe8 && cur_byte != cmp_byte2 {
+                    if cur_byte != Self::CALL_REL32 && cur_byte != cmp_byte2 {
                         continue;
                     }
 
@@ -186,7 +189,7 @@ impl UnpackFilter {
                 Some(data)
             }
 
-            FilterKind::Arm => {
+            FilterKind::ArmBl => {
                 // 2019-11-15: we turned off ARM filter by default when compressing,
                 // mostly because it is inefficient for modern 64 bit ARM binaries.
                 // It was turned on by default in 5.0 - 5.80b3 , so we still need it
