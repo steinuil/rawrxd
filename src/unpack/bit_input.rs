@@ -20,6 +20,19 @@ impl BitInput {
         }
     }
 
+    /// Aligns the cursor to the next byte if we're in the middle of one.
+    pub fn align_to_byte(&mut self) {
+        if self.bit != 0 {
+            self.addr += 1;
+            self.bit = 0;
+        }
+    }
+
+    /// Returns the bye position in the buffer.
+    pub fn byte_position(&self) -> usize {
+        self.addr
+    }
+
     /// Moves forward by `bits` bits.
     pub fn add_bits(&mut self, bits: u32) {
         let bits = bits + self.bit;
