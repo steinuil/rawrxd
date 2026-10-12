@@ -83,23 +83,21 @@ impl Deref for UnpackBlockHeader {
     }
 }
 
-#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterKind {
-    Delta = 0,
-    E8 = 1,
-    E8E9 = 2,
-    Arm = 3,
-    Audio = 4,
-    Rgb = 5,
-    Itanium = 6,
-    Text = 7,
+    Delta { channels: u8 },
+    E8,
+    E8E9,
+    Arm,
+    Audio,
+    Rgb,
+    Itanium,
+    Text,
 }
 
 #[derive(Debug, Clone)]
 pub struct UnpackFilter {
     kind: FilterKind,
-    channels: Option<NonZero<u8>>,
     next_window: bool,
     block_start: usize,
     block_length: u32,
@@ -123,7 +121,10 @@ impl UnpackFilter {
         };
 
         let kind = match inp.read_u8(3) {
-            0 => FilterKind::Delta,
+            0 => {
+                let channels = inp.read_u8(5) + 1;
+                FilterKind::Delta { channels }
+            }
             1 => FilterKind::E8,
             2 => FilterKind::E8E9,
             3 => FilterKind::Arm,
@@ -134,14 +135,8 @@ impl UnpackFilter {
             _ => unreachable!("three bits"),
         };
 
-        let channels = match kind {
-            FilterKind::Delta => NonZero::new(inp.read_u8(5) + 1),
-            _ => None,
-        };
-
         Self {
             kind,
-            channels,
             next_window: false,
             block_start,
             block_length,
@@ -152,7 +147,7 @@ impl UnpackFilter {
         &self,
         data: &'a mut [u8],
         written_file_size: u64,
-        filter_dst_memory: &'a mut Vec<u8>,
+        dst: &'a mut Vec<u8>,
     ) -> Option<&'a [u8]> {
         let data_size = data.len() as u32;
 
@@ -230,31 +225,24 @@ impl UnpackFilter {
 
                 Some(data)
             }
-            FilterKind::Delta => {
-                // Unlike RAR3, we do not need to reject excessive channel
-                // values here, since RAR5 uses only 5 bits to store channel.
-                let channels = self.channels.map_or_default(|n| n.get()) as u32;
-                let mut src_pos: usize = 0;
 
-                filter_dst_memory.resize(data_size as usize, 0);
-                let dst_data = &mut filter_dst_memory[..];
+            FilterKind::Delta { channels } => {
+                let channels = channels as usize;
 
-                // Bytes from same channels are grouped to continual data blocks,
-                // so we need to place them back to their interleaving positions.
-                for cur_channel in 0..channels {
-                    let mut prev_byte: u8 = 0;
-                    let mut dest_pos: u32 = cur_channel;
+                dst.clear();
+                dst.resize(data.len(), 0);
 
-                    while dest_pos < data_size {
-                        prev_byte = prev_byte.wrapping_sub(data[src_pos]);
-                        dst_data[dest_pos as usize] = prev_byte;
+                let mut src = data.iter();
+                for ch in 0..channels {
+                    let mut prev = 0u8;
 
-                        src_pos += 1;
-                        dest_pos += channels;
+                    for (d, source) in dst.iter_mut().skip(ch).step_by(channels).zip(&mut src) {
+                        prev = prev.wrapping_sub(*source);
+                        *d = prev;
                     }
                 }
 
-                Some(filter_dst_memory)
+                Some(dst)
             }
             _ => None,
         }
