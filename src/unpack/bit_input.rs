@@ -28,7 +28,7 @@ impl BitInput {
         }
     }
 
-    /// Returns the bye position in the buffer.
+    /// Returns the byte position in the buffer.
     pub fn byte_position(&self) -> usize {
         self.addr
     }
@@ -65,7 +65,7 @@ impl BitInput {
 
         let b = &self.buf[self.addr..self.addr + 5];
         let field = u64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], 0, 0, 0]);
-        let value = ((field << self.bit) >> (32 - bits)) as u32;
+        let value = ((field << self.bit) >> (64 - bits)) as u32;
         self.add_bits(bits);
         value
     }
