@@ -13,15 +13,13 @@ impl UnpackBlockHeader {
     pub fn read(inp: &mut BitInput) -> Option<Self> {
         inp.align_to_byte();
 
-        let flags = UnpackBlockHeaderFlags((inp.get_bits16() >> 8) as u8);
-        inp.add_bits(8);
+        let flags = UnpackBlockHeaderFlags(inp.read_u8());
 
         if flags.header_size() == 6 {
             return None;
         }
 
-        let expected_checksum = (inp.get_bits16() >> 8) as u8;
-        inp.add_bits(8);
+        let expected_checksum = inp.read_u8();
 
         let block_size =
             inp.get_bits32().swap_bytes() & ((1 << (flags.block_size_byte_count() * 8)) - 1);

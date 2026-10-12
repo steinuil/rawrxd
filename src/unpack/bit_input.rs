@@ -40,6 +40,13 @@ impl BitInput {
         self.bit = bits & 0b111
     }
 
+    /// Reads the next u8 and advances the cursor by 8 bits.
+    pub fn read_u8(&mut self) -> u8 {
+        let field = u16::from_be_bytes([self.buf[self.addr], self.buf[self.addr + 1]]);
+        self.addr += 1;
+        (field >> (8 - self.bit)) as u8
+    }
+
     /// Gets the next 16 bits.
     ///
     /// The bit at the current position is the most significant.
