@@ -148,3 +148,20 @@ impl UnpackFilter {
         }
     }
 }
+
+fn slot_to_length(inp: &mut BitInput, slot: u32) -> u32 {
+    let (l_bits, length) = if slot < 8 {
+        (0, slot + 2)
+    } else {
+        let l_bits = slot / 4 - 1;
+        let length = 2 + ((4 | (slot & 0b11)) << l_bits);
+
+        (l_bits, length)
+    };
+
+    if l_bits > 0 {
+        length + inp.read_u16_be(l_bits) as u32
+    } else {
+        length
+    }
+}
