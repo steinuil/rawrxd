@@ -66,7 +66,7 @@ impl DecodeTable {
         header: &UnpackBlockHeader,
         tables: &mut BlockTables,
         extra_dist: bool,
-    ) {
+    ) -> bool {
         let mut bit_length = [0u8; BC];
 
         for mut i in 0..BC {
@@ -103,6 +103,124 @@ impl DecodeTable {
         } else {
             &mut table[..HUFF_TABLE_SIZEB]
         };
+
+        let mut i = 0;
+        while i < table.len() {
+            let number: u32 = tables.bd.decode_number(inp);
+
+            if number < 16 {
+                table[i] = number as u8;
+                i += 1;
+            } else {
+                if number < 18 {
+                    let mut n: u32;
+                    if number == 16 {
+                        n = (inp.get_bits16() >> 13) + 3;
+                        inp.add_bits(3);
+                    } else {
+                        n = (inp.get_bits16() >> 9) + 11;
+                        inp.add_bits(7);
+                    }
+
+                    if i == 0 {
+                        // We cannot have "repeat previous" code at the first position.
+                        // Multiple such code would shift Inp position without changing I,
+                        // which can lead to reading beyond of Inp boundary in multithreading
+                        // mode, where Inp.ExternalBuffer disables bounds check and we just
+                        // reserve a lot of buffer space to not need such check normally.
+                        return false;
+                    } else {
+                        while {
+                            let old_n = n;
+                            n -= 1;
+                            old_n > 0 && i < table.len()
+                        } {
+                            table[i] = table[i - 1];
+                            i += 1;
+                        }
+                    }
+                } else {
+                    let mut n: u32;
+                    if number == 18 {
+                        n = (inp.get_bits16() >> 13) + 3;
+                        inp.add_bits(3);
+                    } else {
+                        n = (inp.get_bits16() >> 9) + 11;
+                        inp.add_bits(7);
+                    }
+
+                    while {
+                        let old_n = n;
+                        n -= 1;
+                        old_n > 0 && i < table.len()
+                    } {
+                        table[i] = 0;
+                        i += 1;
+                    }
+                }
+            }
+        }
+
+        // TODO
+        // if (!Inp.ExternalBuffer && Inp.InAddr>ReadTop)
+        //   return false;
+
+        Self::make(&table[..], &mut tables.ld, NC);
+        let d_codes = if extra_dist { DCX } else { DCB } as u32;
+        Self::make(&table[NC as usize..], &mut tables.dd, d_codes);
+        Self::make(
+            &table[NC as usize + d_codes as usize..],
+            &mut tables.ldd,
+            LDC as _,
+        );
+        Self::make(
+            &table[NC as usize + d_codes as usize + LDC..],
+            &mut tables.rd,
+            RC as _,
+        );
+
+        true
+    }
+
+    pub fn decode_number(&mut self, inp: &mut BitInput) -> u32 {
+        // Left aligned 15 bit length raw bit field.
+        let bit_field: u32 = inp.get_bits16() & 0xfffe;
+
+        if bit_field < self.decode_len[self.quick_bits as usize] {
+            let code: u32 = bit_field >> (16 - self.quick_bits);
+            inp.add_bits(self.quick_len[code as usize] as u32);
+            return self.quick_num[code as usize] as u32;
+        }
+
+        // Detect the real bit length for current code.
+        let mut bits: u32 = 15;
+        for i in self.quick_bits + 1..15 {
+            if bit_field < self.decode_len[i as usize] {
+                bits = i;
+                break;
+            }
+        }
+
+        inp.add_bits(bits);
+
+        // Calculate the distance from the start code for current bit length.
+        let mut dist: u32 = bit_field - self.decode_len[bits as usize - 1];
+
+        // Start codes are left aligned, but we need the normal right aligned
+        // number. So we shift the distance to the right.
+        dist >>= 16 - bits;
+
+        // Now we can calculate the position in the code list. It is the sum
+        // of first position for current bit length and right aligned distance
+        // between our bit field and start code for current bit length.
+        let mut pos: u32 = self.decode_pos[bits as usize] + dist;
+
+        // Out of bounds safety check required for damaged archives.
+        if pos >= self.max_num {
+            pos = 0;
+        }
+
+        self.decode_num[pos as usize] as u32
     }
 
     pub fn make(length_table: &[u8], dec: &mut DecodeTable, size: u32) {
