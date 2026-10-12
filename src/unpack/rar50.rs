@@ -152,7 +152,7 @@ impl UnpackFilter {
         &self,
         data: &'a mut [u8],
         written_file_size: u64,
-        mut filter_dst_memory: &'a mut Vec<u8>,
+        filter_dst_memory: &'a mut Vec<u8>,
     ) -> Option<&'a [u8]> {
         let data_size = data.len() as u32;
 
@@ -237,7 +237,7 @@ impl UnpackFilter {
                 let mut src_pos: usize = 0;
 
                 filter_dst_memory.resize(data_size as usize, 0);
-                let dst_data = &mut filter_dst_memory;
+                let dst_data = &mut filter_dst_memory[..];
 
                 // Bytes from same channels are grouped to continual data blocks,
                 // so we need to place them back to their interleaving positions.
