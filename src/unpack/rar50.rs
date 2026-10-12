@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{num::NonZero, ops::Deref};
 
 use crate::unpack::bit_input::BitInput;
 
@@ -96,9 +96,10 @@ pub enum FilterKind {
     Text = 7,
 }
 
+#[derive(Debug, Clone)]
 pub struct UnpackFilter {
     kind: FilterKind,
-    channels: Option<u8>,
+    channels: Option<NonZero<u8>>,
     next_window: bool,
     block_start: usize,
     block_length: u32,
@@ -134,7 +135,7 @@ impl UnpackFilter {
         };
 
         let channels = match kind {
-            FilterKind::Delta => Some(inp.read_u8(5) + 1),
+            FilterKind::Delta => NonZero::new(inp.read_u8(5) + 1),
             _ => None,
         };
 
