@@ -302,18 +302,11 @@ impl Window {
     }
 
     pub fn wrap_up(&self, win_pos: usize) -> usize {
-        if win_pos >= self.max_win_size {
-            win_pos.wrapping_sub(self.max_win_size)
-        } else {
-            win_pos
-        }
+        win_pos.checked_sub(self.max_win_size).unwrap_or(win_pos)
     }
 
-    pub fn wrap_down(&self, win_pos: usize) -> usize {
-        if win_pos >= self.max_win_size {
-            win_pos.wrapping_add(self.max_win_size)
-        } else {
-            win_pos
-        }
+    pub fn ring_distance(&self, from: usize, to: usize) -> usize {
+        to.checked_sub(from)
+            .unwrap_or_else(|| to + self.max_win_size - from)
     }
 }
