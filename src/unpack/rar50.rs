@@ -312,7 +312,15 @@ impl Window {
 
     pub fn wrap_up(&self, win_pos: usize) -> usize {
         if win_pos >= self.max_win_size {
-            win_pos - self.max_win_size
+            win_pos.wrapping_sub(self.max_win_size)
+        } else {
+            win_pos
+        }
+    }
+
+    pub fn wrap_down(&self, win_pos: usize) -> usize {
+        if win_pos >= self.max_win_size {
+            win_pos.wrapping_add(self.max_win_size)
         } else {
             win_pos
         }
