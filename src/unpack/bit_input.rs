@@ -1,3 +1,4 @@
+#[derive(Debug, Clone)]
 pub struct BitInput {
     buf: Box<[u8; Self::MAX_SIZE + Self::PADDING]>,
     addr: usize,
@@ -66,6 +67,15 @@ impl BitInput {
         let b = &self.buf[self.addr..self.addr + 5];
         let field = u64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], 0, 0, 0]);
         let value = ((field << self.bit) >> (64 - bits)) as u32;
+        self.add_bits(bits);
+        value
+    }
+
+    pub fn read_u64_be(&mut self, bits: u32) -> u64 {
+        assert!((1..=64).contains(&bits));
+
+        let field = self.get_bits64();
+        let value = field >> (64 - bits);
         self.add_bits(bits);
         value
     }

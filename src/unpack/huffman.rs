@@ -41,13 +41,13 @@ impl Default for DecodeTable {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct BlockTables {
-    ld: DecodeTable,
-    dd: DecodeTable,
-    ldd: DecodeTable,
-    rd: DecodeTable,
-    bd: DecodeTable,
+    pub ld: DecodeTable,
+    pub dd: DecodeTable,
+    pub ldd: DecodeTable,
+    pub rd: DecodeTable,
+    pub bd: DecodeTable,
 }
 
 impl DecodeTable {

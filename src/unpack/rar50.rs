@@ -1,6 +1,6 @@
 use std::{num::NonZero, ops::Deref};
 
-use crate::unpack::bit_input::BitInput;
+use crate::unpack::{bit_input::BitInput, huffman::BlockTables};
 
 #[derive(Debug, Clone)]
 pub struct UnpackBlockHeader {
@@ -262,6 +262,11 @@ impl Window {
     const MAX_LZ_MATCH: usize = 0x1001;
     const MAX_INC_LZ_MATCH: usize = Self::MAX_LZ_MATCH + 3;
 
+    pub fn push(&mut self, byte: u8) {
+        self.buf[self.unp_ptr] = byte;
+        self.unp_ptr += 1;
+    }
+
     pub fn copy_string(&mut self, length: u32, distance: usize) {
         let length = length as usize;
 
@@ -308,5 +313,136 @@ impl Window {
     pub fn ring_distance(&self, from: usize, to: usize) -> usize {
         to.checked_sub(from)
             .unwrap_or_else(|| to + self.max_win_size - from)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RepeatState {
+    old_distances: [usize; 4],
+    last_length: u32,
+}
+
+impl RepeatState {
+    fn insert_old_dist(&mut self, distance: usize) {
+        self.old_distances.rotate_right(1);
+        self.old_distances[0] = distance;
+    }
+
+    fn last_distance(&self) -> usize {
+        self.old_distances[0]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Unpack5 {
+    inp: BitInput,
+    tables: BlockTables,
+    window: Window,
+    reps: RepeatState,
+    filters: Vec<UnpackFilter>,
+    wr_ptr: usize,
+}
+
+impl Unpack5 {
+    const MAX_UNPACK_FILTERS: usize = 0x2000;
+
+    fn decode_symbol(&mut self) -> bool {
+        let main_slot = self.tables.ld.decode_number(&mut self.inp);
+
+        match main_slot {
+            0..=255 => {
+                self.window.push(main_slot as u8);
+                true
+            }
+
+            256 => {
+                let filter = UnpackFilter::read(&mut self.inp);
+                self.add_filter(filter)
+            }
+
+            257 => {
+                if self.reps.last_length != 0 {
+                    self.window
+                        .copy_string(self.reps.last_length, self.reps.last_distance());
+                }
+
+                true
+            }
+
+            258..=261 => {
+                let dist_num = (main_slot - 258) as usize;
+                let distance = self.reps.old_distances[dist_num];
+                for i in (1..dist_num).rev() {
+                    self.reps.old_distances[i] = self.reps.old_distances[i - 1];
+                }
+                self.reps.old_distances[0] = distance;
+
+                let length_slot = self.tables.rd.decode_number(&mut self.inp);
+                let length = slot_to_length(&mut self.inp, length_slot);
+                self.reps.last_length = length;
+                self.window.copy_string(length, distance);
+                true
+            }
+
+            262.. => {
+                let mut length = slot_to_length(&mut self.inp, main_slot - 262);
+
+                let mut distance: u64 = 1;
+                let dist_slot = self.tables.dd.decode_number(&mut self.inp);
+                let d_bits = if dist_slot < 4 {
+                    distance += dist_slot as u64;
+                    0
+                } else {
+                    let d_bits = dist_slot / 2 - 1;
+                    distance += ((2 | (dist_slot & 1)) as u64) << d_bits;
+                    d_bits
+                };
+
+                if d_bits > 0 {
+                    if d_bits >= 4 {
+                        if d_bits > 4 {
+                            distance += self.inp.read_u64_be(d_bits - 4) << 4;
+                        }
+                        let low_dist = self.tables.ldd.decode_number(&mut self.inp);
+                        distance += low_dist as u64;
+                    } else {
+                        distance += self.inp.read_u16_be(d_bits) as u64;
+                    }
+                }
+
+                let distance = usize::try_from(distance).unwrap_or(usize::MAX);
+
+                if distance > 0x100 {
+                    length += 1;
+
+                    if distance > 0x2000 {
+                        length += 1;
+
+                        if distance > 0x40000 {
+                            length += 1;
+                        }
+                    }
+                }
+
+                self.reps.insert_old_dist(distance);
+                self.reps.last_length = length;
+                self.window.copy_string(length, distance);
+                true
+            }
+        }
+    }
+
+    fn add_filter(&mut self, mut filter: UnpackFilter) -> bool {
+        if self.filters.len() >= Self::MAX_UNPACK_FILTERS {
+            todo!()
+        }
+
+        let w = &self.window;
+        filter.next_window = self.wr_ptr != w.unp_ptr
+            && w.ring_distance(w.unp_ptr, self.wr_ptr) <= filter.block_start;
+
+        filter.block_start = filter.block_start.wrapping_add(w.unp_ptr) ^ w.max_win_size;
+        self.filters.push(filter);
+        true
     }
 }
