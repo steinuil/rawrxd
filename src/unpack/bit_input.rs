@@ -29,9 +29,32 @@ impl BitInput {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.addr = 0;
+        self.bit = 0;
+    }
+
     /// Returns the byte position in the buffer.
     pub fn byte_position(&self) -> usize {
         self.addr
+    }
+
+    pub fn bit_position(&self) -> u32 {
+        self.bit
+    }
+
+    /// Moves the unread bytes up to `end` to the start of the buffer.
+    pub fn discard_consumed(&mut self, end: usize) {
+        self.buf.copy_within(self.addr..end, 0);
+        self.addr = 0;
+    }
+
+    /// Copies as much of `input` as fits into the buffer at `at`, advancing `input`.
+    pub fn fill(&mut self, at: usize, input: &mut &[u8]) -> usize {
+        let n = (Self::MAX_SIZE - at).min(input.len());
+        self.buf[at..at + n].copy_from_slice(&input[..n]);
+        *input = &input[n..];
+        n
     }
 
     /// Moves forward by `bits` bits.

@@ -1,6 +1,9 @@
 use std::{num::NonZero, ops::Deref};
 
-use crate::unpack::{bit_input::BitInput, huffman::BlockTables};
+use crate::{
+    unpack::{bit_input::BitInput, huffman::BlockTables},
+    Error, RarResult,
+};
 
 #[derive(Debug, Clone)]
 pub struct UnpackBlockHeader {
@@ -28,11 +31,6 @@ impl UnpackBlockHeader {
         if checksum != expected_checksum {
             return None;
         }
-
-        // We called Inp.faddbits(8) above, thus Header.BlockStar can't be 0 here.
-        // So there is no overflow even if Header.BlockSize is 0.
-        // TODO
-        // let read_border = read_border.min(block_star + block_size - 1);
 
         Some(Self {
             offset: inp.byte_position(),
@@ -442,5 +440,101 @@ impl Unpack5 {
         filter.block_start = filter.block_start.wrapping_add(w.unp_ptr) % w.max_win_size;
         self.filters.push(filter);
         true
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Input {
+    pub bits: BitInput,
+    read_top: isize,
+    read_border: isize,
+    block_start: isize,
+    block_size: isize,
+    block_bit_size: u32,
+}
+
+impl Input {
+    pub fn new() -> Self {
+        Self {
+            bits: BitInput::new(),
+            read_top: 0,
+            read_border: 0,
+            block_start: 0,
+            block_size: -1,
+            block_bit_size: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.bits.reset();
+        self.read_top = 0;
+        self.read_border = 0;
+        self.block_start = 0;
+        self.block_size = -1;
+        self.block_bit_size = 0;
+    }
+
+    pub fn refill(&mut self, input: &mut &[u8], finished: bool) -> RarResult<bool> {
+        let addr = self.bits.byte_position() as isize;
+
+        // Data left to process.
+        let mut data_size = self.read_top - addr;
+        if data_size < 0 {
+            return Err(Error::UnexpectedEof);
+        }
+        self.block_size -= addr - self.block_start;
+
+        if addr > (BitInput::MAX_SIZE / 2) as isize {
+            // If we already processed more than half of buffer, let's move
+            // remaining data into beginning to free more space for new data
+            // and ensure that calling function does not cross the buffer border
+            // even if we did not read anything here. Also it esure that read size
+            // is not less than CRYPT_BLOCK_SIZE, so we can align it without risk
+            // to make it zero.
+            self.bits.discard_consumed(self.read_top as usize);
+            self.read_top = data_size;
+        } else {
+            data_size = self.read_top;
+        }
+
+        self.read_top += self.bits.fill(data_size as usize, input) as isize;
+
+        self.read_border = self.read_top - 30;
+        self.block_start = self.bits.byte_position() as isize;
+
+        // -1 means not defined yet.
+        if self.block_size != -1 {
+            // We may need to quit from main extraction loop and read new block header
+            // and trees earlier than data in input buffer ends.
+            self.read_border = self.read_border.min(self.end())
+        }
+
+        Ok(self.read_top as usize == BitInput::MAX_SIZE || finished)
+    }
+
+    #[inline]
+    fn end(&self) -> isize {
+        self.block_start + self.block_size - 1
+    }
+
+    pub fn start_block(&mut self, header: &UnpackBlockHeader) {
+        self.block_start = header.offset as isize;
+        self.block_size = header.block_size as isize;
+        self.block_bit_size = header.block_bit_size() as u32;
+
+        self.read_border = self.read_border.min(self.end());
+    }
+
+    pub fn at_border(&self) -> bool {
+        self.bits.byte_position() as isize >= self.read_border
+    }
+
+    pub fn past_block_end(&self) -> bool {
+        let addr = self.bits.byte_position() as isize;
+        addr > self.end() || addr == self.end() && self.bits.bit_position() >= self.block_bit_size
+    }
+
+    pub fn past_read_top(&self) -> bool {
+        self.bits.byte_position() as isize > self.read_top
     }
 }
