@@ -1,3 +1,3 @@
-mod bit_input;
-mod huffman;
-mod rar50;
+pub mod bit_input;
+pub mod huffman;
+pub mod rar50;

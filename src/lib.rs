@@ -49,7 +49,7 @@ mod read;
 mod signature;
 mod size;
 mod time_conv;
-mod unpack;
+pub mod unpack;
 
 pub use error::{Error, ErrorKind, RarResult};
 pub use signature::Signature;
