@@ -97,6 +97,7 @@ pub enum FilterKind {
 pub struct UnpackFilter {
     kind: FilterKind,
     next_window: bool,
+    done: bool,
     block_start: usize,
     block_length: u32,
 }
@@ -139,6 +140,7 @@ impl UnpackFilter {
         Self {
             kind,
             next_window: false,
+            done: false,
             block_start,
             block_length,
         }
@@ -338,7 +340,9 @@ pub struct Unpack5 {
     window: Window,
     reps: RepeatState,
     filters: Vec<UnpackFilter>,
-    wr_ptr: usize,
+    filter_src: Vec<u8>,
+    filter_dst: Vec<u8>,
+    output: Output,
 }
 
 impl Unpack5 {
@@ -434,8 +438,8 @@ impl Unpack5 {
         }
 
         let w = &self.window;
-        filter.next_window = self.wr_ptr != w.unp_ptr
-            && w.ring_distance(w.unp_ptr, self.wr_ptr) <= filter.block_start;
+        filter.next_window = self.output.wr_ptr != w.unp_ptr
+            && w.ring_distance(w.unp_ptr, self.output.wr_ptr) <= filter.block_start;
 
         filter.block_start = filter.block_start.wrapping_add(w.unp_ptr) % w.max_win_size;
         self.filters.push(filter);
@@ -536,5 +540,43 @@ impl Input {
 
     pub fn past_read_top(&self) -> bool {
         self.bits.byte_position() as isize > self.read_top
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Output {
+    wr_ptr: usize,
+    write_border: usize,
+    written_file_size: u64,
+    dest_unp_size: Option<u64>,
+    pending: Vec<u8>,
+    pending_pos: usize,
+}
+
+impl Output {
+    fn write_area(&mut self, window: &Window, start_ptr: usize, end_ptr: usize) {
+        if end_ptr < start_ptr {
+            self.write_data(&window.buf[start_ptr..window.max_win_size]);
+            self.write_data(&window.buf[..end_ptr]);
+        } else {
+            self.write_data(&window.buf[start_ptr..end_ptr]);
+        }
+    }
+
+    fn write_data(&mut self, data: &[u8]) {
+        let mut write_size = data.len();
+        if let Some(dest_unp_size) = self.dest_unp_size {
+            if self.written_file_size >= dest_unp_size {
+                return;
+            }
+
+            let left_to_write = dest_unp_size - self.written_file_size;
+            if write_size as u64 > left_to_write {
+                write_size = left_to_write as usize;
+            }
+        }
+
+        self.pending.extend_from_slice(&data[..write_size]);
+        self.written_file_size += data.len() as u64;
     }
 }
