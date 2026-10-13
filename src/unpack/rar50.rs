@@ -371,11 +371,9 @@ impl Unpack5 {
 
             258..=261 => {
                 let dist_num = (main_slot - 258) as usize;
-                let distance = self.reps.old_distances[dist_num];
-                for i in (1..dist_num).rev() {
-                    self.reps.old_distances[i] = self.reps.old_distances[i - 1];
-                }
-                self.reps.old_distances[0] = distance;
+
+                self.reps.old_distances[..=dist_num].rotate_right(1);
+                let distance = self.reps.last_distance();
 
                 let length_slot = self.tables.rd.decode_number(&mut self.inp);
                 let length = slot_to_length(&mut self.inp, length_slot);
@@ -441,7 +439,7 @@ impl Unpack5 {
         filter.next_window = self.wr_ptr != w.unp_ptr
             && w.ring_distance(w.unp_ptr, self.wr_ptr) <= filter.block_start;
 
-        filter.block_start = filter.block_start.wrapping_add(w.unp_ptr) ^ w.max_win_size;
+        filter.block_start = filter.block_start.wrapping_add(w.unp_ptr) % w.max_win_size;
         self.filters.push(filter);
         true
     }
