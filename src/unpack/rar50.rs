@@ -248,3 +248,73 @@ fn slot_to_length(inp: &mut BitInput, slot: u32) -> u32 {
         length
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct Window {
+    buf: Vec<u8>,
+    max_win_size: usize,
+    unp_ptr: usize,
+    prev_ptr: usize,
+    first_win_done: bool,
+}
+
+impl Window {
+    const MAX_LZ_MATCH: usize = 0x1001;
+    const MAX_INC_LZ_MATCH: usize = Self::MAX_LZ_MATCH + 3;
+
+    pub fn copy_string(&mut self, length: u32, distance: usize) {
+        let length = length as usize;
+
+        let mut src_ptr = self.unp_ptr.strict_sub(distance);
+
+        // Perform the correction here instead of "else", so matches crossing
+        // the window beginning can also be processed by first "if" part.
+
+        // Unlike SrcPtr >= MaxWinSize, it catches invalid distances like 0xfffffff0 in 32-bit build.
+        if distance > self.unp_ptr {
+            // Same as WrapDown(SrcPtr), needed because of UnpPtr-Distance above.
+            // We need the same condition below, so we expanded WrapDown here.
+            src_ptr += self.max_win_size;
+
+            if distance > self.max_win_size || !self.first_win_done {
+                for _ in 0..length {
+                    self.buf[self.unp_ptr] = 0;
+                    self.unp_ptr = self.wrap_up(self.unp_ptr + 1);
+                }
+
+                return;
+            }
+        }
+
+        let limit = self.max_win_size - Self::MAX_INC_LZ_MATCH;
+        if src_ptr < limit && self.unp_ptr < limit {
+            let dst = self.unp_ptr;
+
+            if distance >= length {
+                self.buf.copy_within(src_ptr..src_ptr + length, dst);
+            } else {
+                for i in 0..length {
+                    self.buf[dst + 1] = self.buf[src_ptr + i];
+                }
+            }
+
+            self.unp_ptr += length;
+        } else {
+            for _ in 0..length {
+                self.buf[self.unp_ptr] = self.buf[self.wrap_up(src_ptr)];
+                src_ptr += 1;
+                self.unp_ptr = self.wrap_up(self.unp_ptr + 1);
+            }
+        }
+
+        todo!()
+    }
+
+    pub fn wrap_up(&self, win_pos: usize) -> usize {
+        if win_pos >= self.max_win_size {
+            win_pos - self.max_win_size
+        } else {
+            win_pos
+        }
+    }
+}
