@@ -41,6 +41,42 @@ impl Default for DecodeTable {
     }
 }
 
+impl DecodeTable {
+    const BC_ESCAPE: u8 = 0xf;
+
+    pub fn read_bit_lengths(inp: &mut BitInput) -> Self {
+        let mut bit_length = [0u8; BC];
+
+        let mut slots = bit_length.iter_mut();
+        while let Some(slot) = slots.next() {
+            let length = inp.read_u8(4);
+
+            if length != Self::BC_ESCAPE {
+                *slot = length;
+                continue;
+            }
+
+            // 0xf is interpreted as an escape code, whose meaning depends
+            // on the next 4 bits.
+            match inp.read_u8(4) {
+                // If they are 0, the length is actually 15.
+                0 => *slot = 15,
+
+                // Otherwise they encode a number of consecutive zero lengths.
+                zero_count => {
+                    for _ in 0..zero_count + 1 {
+                        slots.next();
+                    }
+                }
+            }
+        }
+
+        let mut table = Self::default();
+        Self::make(&bit_length, &mut table, BC as u32);
+        table
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BlockTables {
     pub ld: DecodeTable,
@@ -54,38 +90,7 @@ impl DecodeTable {
     pub fn read_tables(inp: &mut BitInput, tables: &mut BlockTables, extra_dist: bool) -> bool {
         // NOTE unrar returns true when !Header.TablePresent
 
-        let mut bit_length = [0u8; BC];
-
-        let mut i = 0;
-        while i < BC {
-            let length: u32 = ((inp.get_bits16() >> 12) as u8) as u32;
-            inp.add_bits(4);
-
-            if length == 15 {
-                let mut zero_count = ((inp.get_bits16() >> 12) as u8) as u32;
-                inp.add_bits(4);
-                if zero_count == 0 {
-                    bit_length[i] = 15;
-                } else {
-                    zero_count += 2;
-                    while {
-                        let old_zero_count = zero_count;
-                        zero_count = zero_count.wrapping_sub(1);
-                        old_zero_count > 0 && i < bit_length.len()
-                    } {
-                        bit_length[i] = 0;
-                        i += 1;
-                    }
-                    i -= 1;
-                }
-            } else {
-                bit_length[i] = length as u8;
-            }
-
-            i += 1;
-        }
-
-        DecodeTable::make(&bit_length, &mut tables.bd, BC as u32);
+        tables.bd = DecodeTable::read_bit_lengths(inp);
 
         let mut table = [0u8; HUFF_TABLE_SIZEX];
         let table = if extra_dist {
