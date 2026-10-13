@@ -175,20 +175,15 @@ impl DecodeTable {
         let bit_field: u32 = inp.get_bits16() & 0xfffe;
 
         if bit_field < self.decode_len[self.quick_bits as usize] {
-            let code: u32 = bit_field >> (16 - self.quick_bits);
-            inp.add_bits(self.quick_len[code as usize] as u32);
-            return self.quick_num[code as usize] as u32;
+            let code = (bit_field >> (16 - self.quick_bits)) as usize;
+            inp.add_bits(self.quick_len[code] as u32);
+            return self.quick_num[code] as u32;
         }
 
         // Detect the real bit length for current code.
-        let mut bits: u32 = 15;
-        for i in self.quick_bits + 1..15 {
-            if bit_field < self.decode_len[i as usize] {
-                bits = i;
-                break;
-            }
-        }
-
+        let bits = (self.quick_bits + 1..15)
+            .find(|&i| bit_field < self.decode_len[i as usize])
+            .unwrap_or(15);
         inp.add_bits(bits);
 
         // Calculate the distance from the start code for current bit length.
