@@ -17,11 +17,12 @@ pub struct Block {
     /// Offset of this block from the start of the file.
     pub offset: u64,
 
-    /// Low 16 bytes of the CRC32 hash of the header.
+    /// Checksum of the header.
     pub header_checksum: Crc32Low16,
 
-    /// Whether the [`Self::header_crc16`] matches the bytes in the header.
-    /// `None` if the block skips the checksum.
+    /// Whether the [`Self::header_checksum`] matches the bytes in the header.
+    ///
+    /// `None` if the type of does not allow a checksum.
     pub header_checksum_ok: Option<bool>,
 
     /// Size of the header.
@@ -362,7 +363,7 @@ pub struct FileBlock {
     /// OS used to add this file the archive.
     pub host_os: HostOs,
 
-    /// CRC32 hash of the file.
+    /// Checksum of the unpacked file.
     pub file_checksum: Crc32,
 
     /// Modification time of the file.
@@ -604,7 +605,7 @@ pub struct ServiceBlock {
     /// OS used to add this block to the archive.
     pub host_os: HostOs,
 
-    /// CRC32 checksum of the data section.
+    /// Checksum of the unpacked data.
     pub data_checksum: Crc32,
 
     /// Modification time of the file.
@@ -884,9 +885,8 @@ pub struct CommentBlock {
     // TODO enumerate these
     pub method: u8,
 
-    /// CRC15t6 hash of the comment.
-    // TODO before or after decompression?
-    pub crc16: u16,
+    /// Checksum of the unpacked comment.
+    pub checksum: Crc32Low16,
 }
 
 impl CommentBlock {
@@ -894,13 +894,13 @@ impl CommentBlock {
         let unpacked_data_size = read_u16(reader)?;
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
-        let crc16 = read_u16(reader)?;
+        let checksum = Crc32Low16(read_u16(reader)?);
 
         Ok(CommentBlock {
             unpacked_data_size,
             unpack_version,
             method,
-            crc16,
+            checksum,
         })
     }
 }

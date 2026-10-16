@@ -179,7 +179,7 @@ flags! {
         /// Volume number field is present. True for all volumes except first.
         has_volume_number = 0x0002;
 
-        /// https://en.wikipedia.org/wiki/Solid_compression
+        /// <https://en.wikipedia.org/wiki/Solid_compression>
         pub is_solid = 0x0004;
 
         /// Contains a recovery record.
@@ -370,7 +370,7 @@ pub struct FileBlock {
     /// File modification time.
     pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
 
-    /// CRC32 of unpacked file.
+    /// Checksum of the unpacked file.
     pub unpacked_data_checksum: Option<Crc32>,
 
     /// Compression settings for this file.
@@ -709,11 +709,12 @@ pub struct RecoveryRecordServiceBlock {
     pub info: Option<RecoveryRecordInfo>,
 }
 
+/// The recovery record is not used in WinRAR.
+///
+/// Here is more information about it.
+/// <https://www.win-rar.com/faq-passwords.html?&L=0>
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
-/// The recovery record is not used in WinRAR.
-/// Here is more information about it.
-/// https://www.win-rar.com/faq-passwords.html?&L=0
 pub struct RecoveryRecordInfo {
     /// Percentage of the record size in relation to the archive.
     ///
