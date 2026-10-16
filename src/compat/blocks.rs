@@ -43,8 +43,8 @@ impl Block {
     pub fn header_hash(&self) -> Option<HashKind> {
         match self {
             Block::Rar14(_) => None,
-            Block::Rar15(b) => Some(HashKind::Crc16(b.header_crc16)),
-            Block::Rar50(b) => Some(HashKind::Crc32(b.header_crc32)),
+            Block::Rar15(b) => Some(HashKind::Crc16(b.header_crc16.0)),
+            Block::Rar50(b) => Some(HashKind::Crc32(b.header_crc32.0)),
         }
     }
 }

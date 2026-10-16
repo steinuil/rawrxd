@@ -1,15 +1,32 @@
-use std::{io, ops::Deref};
+use std::{fmt, io, ops::Deref};
 
 use crate::{read::*, size::BlockSize, ErrorKind, RarResult};
 
 use super::{helpers::*, record_iterator::*, MAX_PATH_SIZE};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct Crc32(pub u32);
+
+impl fmt::Debug for Crc32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:08x}", self.0)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Crc32 {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        format!("{:08x}", self.0).serialize(serializer)
+    }
+}
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Block {
     pub offset: u64,
     pub flags: CommonFlags,
-    pub header_crc32: u32,
+    pub header_crc32: Crc32,
     pub header_crc_ok: bool,
     pub header_size: u64,
     pub extra_area_size: Option<u64>,
@@ -129,7 +146,7 @@ impl Block {
         Ok(Block {
             offset,
             flags,
-            header_crc32,
+            header_crc32: Crc32(header_crc32),
             header_crc_ok,
             header_size: full_header_size,
             extra_area_size,
@@ -371,7 +388,7 @@ pub struct FileBlock {
     pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
 
     /// CRC32 of unpacked file.
-    pub unpacked_data_crc32: Option<u32>,
+    pub unpacked_data_crc32: Option<Crc32>,
 
     /// Compression settings for this file.
     pub compression_info: CompressionInfo,
@@ -557,7 +574,7 @@ impl FileBlock {
         };
 
         let unpacked_data_crc32 = if flags.has_crc32() {
-            Some(read_u32(reader)?)
+            Some(Crc32(read_u32(reader)?))
         } else {
             None
         };
@@ -629,7 +646,7 @@ pub struct ServiceBlock {
     pub flags: ServiceBlockFlags,
     pub unpacked_size: Option<u64>,
     pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
-    pub data_crc32: Option<u32>,
+    pub data_crc32: Option<Crc32>,
     pub compression_info: CompressionInfo,
     pub host_os: HostOs,
 
@@ -776,7 +793,7 @@ impl ServiceBlock {
         };
 
         let data_crc32 = if flags.has_crc32() {
-            Some(read_u32(reader)?)
+            Some(Crc32(read_u32(reader)?))
         } else {
             None
         };

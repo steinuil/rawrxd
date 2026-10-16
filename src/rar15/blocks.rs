@@ -1,4 +1,4 @@
-use std::{io, ops::Deref};
+use std::{fmt, io, ops::Deref};
 
 use crate::{
     checksum::Checksum as _, error::ErrorKind, rar15::crc15, read::*, size::BlockSize, time_conv,
@@ -6,6 +6,23 @@ use crate::{
 };
 
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct Checksum16(pub u16);
+
+impl fmt::Debug for Checksum16 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04x}", self.0)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Checksum16 {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        format!("{:04x}", self.0).serialize(serializer)
+    }
+}
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -15,7 +32,7 @@ pub struct Block {
     pub offset: u64,
 
     /// Low 16 bytes of the CRC32 hash of the header.
-    pub header_crc16: u16,
+    pub header_crc16: Checksum16,
 
     /// Whether the [`Self::header_crc16`] matches the bytes in the header.
     /// `None` if the block skips the checksum.
@@ -110,7 +127,7 @@ impl Block {
 
         Ok(Block {
             offset,
-            header_crc16,
+            header_crc16: Checksum16(header_crc16),
             header_crc_ok,
             header_size,
             generic_data_size,
