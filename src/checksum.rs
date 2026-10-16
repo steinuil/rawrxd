@@ -71,10 +71,22 @@ impl Checksum for Crc32Low16Hasher {
 }
 
 /// A custom checksum used in RAR 1.4 archives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Checksum14(pub u16);
+
+impl fmt::Debug for Checksum14 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:04x}", self.0)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Checksum14 {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        format!("{:04x}", self.0).serialize(serializer)
+    }
+}
 
 /// Represents an in-progress Checksum14 computation.
 #[derive(Debug, Clone, Default)]
