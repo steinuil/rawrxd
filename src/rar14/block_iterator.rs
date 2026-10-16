@@ -3,7 +3,6 @@ use std::io;
 use crate::{
     error::{ErrorKind, RarResult},
     size::next_block_offset,
-    Error,
 };
 
 use super::{Block, FileBlock, MainBlock};
@@ -47,8 +46,8 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
             Block::File(FileBlock::read(&mut self.reader)?)
         };
 
-        self.next_offset = next_block_offset(&block, self.file_size)
-            .ok_or(Error::new(ErrorKind::CorruptHeader.into()))?;
+        self.next_offset =
+            next_block_offset(&block, self.file_size).ok_or(ErrorKind::CorruptHeader)?;
 
         Ok(block)
     }

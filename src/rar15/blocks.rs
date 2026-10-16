@@ -2,7 +2,7 @@ use std::{fmt, io, ops::Deref};
 
 use crate::{
     checksum::Checksum as _, error::ErrorKind, rar15::crc15, read::*, size::BlockSize, time_conv,
-    Error, RarResult,
+    RarResult,
 };
 
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
@@ -815,11 +815,11 @@ impl ServiceBlock {
 
         let sub_data_size = (header_size as usize)
             .checked_sub(name_size)
-            .ok_or(Error::new(ErrorKind::CorruptHeader))?
+            .ok_or(ErrorKind::CorruptHeader)?
             .checked_sub(Self::SIZE)
-            .ok_or(Error::new(ErrorKind::CorruptHeader))?
+            .ok_or(ErrorKind::CorruptHeader)?
             .checked_sub(if flags.has_salt() { Self::SALT_SIZE } else { 0 })
-            .ok_or(Error::new(ErrorKind::CorruptHeader))?;
+            .ok_or(ErrorKind::CorruptHeader)?;
 
         let sub_data = if sub_data_size > 0 {
             Some(read_vec(reader, sub_data_size)?)
