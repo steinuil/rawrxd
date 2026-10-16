@@ -59,9 +59,7 @@ impl Signature {
     pub const MAX_SFX_SIZE: u64 = 0x400000;
 
     /// Search for a RAR signature in the stream up to [`Signature::MAX_SFX_SIZE`] and return the
-    /// format version and the offset of the signature in the file.
-    ///
-    /// The first block of the archive starts at `offset + format.size()`.
+    /// format version and the offset of the first block in the file.
     ///
     /// # Examples
     ///
