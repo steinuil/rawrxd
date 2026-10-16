@@ -1,5 +1,7 @@
 /// A custom checksum used in RAR 1.4 archives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[repr(transparent)]
 pub struct Checksum14(pub u16);
 
 /// Represents an in-progress Checksum14 computation.

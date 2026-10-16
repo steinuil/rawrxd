@@ -3,6 +3,7 @@ use std::{io, ops::Deref};
 use crate::{rar14::checksum14::Checksum14, read::*, size::BlockSize, time_conv, Error, RarResult};
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// A generic RAR14 block.
 pub enum Block {
     Main(MainBlock),
@@ -33,6 +34,7 @@ impl BlockSize for Block {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Block containing archive metadata.
 pub struct MainBlock {
     /// Offset of this block from the start of the file.
@@ -165,6 +167,7 @@ impl BlockSize for MainBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Block containing a file.
 pub struct FileBlock {
     /// Offset of this block from the start of the file.
@@ -313,6 +316,16 @@ impl OemString {
             OemString::Ascii(string)
         } else {
             OemString::Oem(buf)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for OemString {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            OemString::Ascii(s) => s.serialize(serializer),
+            OemString::Oem(s) => s.serialize(serializer),
         }
     }
 }

@@ -31,6 +31,21 @@ macro_rules! int_enum {
 
             }
         }
+
+        #[cfg(feature = "serde")]
+        impl ::serde::Serialize for $name {
+            fn serialize<S: ::serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                match self {
+                    $(
+                        Self::$field_name => stringify!($field_name).serialize(serializer),
+                    )*
+                    Self::Unknown(t) => t.serialize(serializer),
+                }
+            }
+        }
     };
 }
 
@@ -68,6 +83,30 @@ macro_rules! flags {
                         .field(stringify!($field_name), &self.$field_name())
                     )*
                     .finish()
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl ::serde::Serialize for $struct_name {
+            fn serialize<S: ::serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                use ::serde::ser::SerializeStruct as _;
+
+                let mut state = serializer.serialize_struct(
+                    stringify!($struct_name),
+                    0 $(+ { let _ = stringify!($field_name); 1 })*
+                )?;
+
+                $(
+                    state.serialize_field(
+                        stringify!($field_name),
+                        &self.$field_name(),
+                    )?;
+                )*
+
+                state.end()
             }
         }
     }

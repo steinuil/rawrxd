@@ -7,6 +7,7 @@ use crate::{
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// A generic RAR15 block.
 pub struct Block {
     /// Offset of this block from the start of the file.
@@ -172,6 +173,7 @@ impl HeaderCrcRange {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Concrete block type.
 pub enum BlockKind {
     Main(MainBlock),
@@ -187,6 +189,7 @@ pub enum BlockKind {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Main block containing archive metadata.
 ///
 /// This should be the first block in the archive.
@@ -308,6 +311,7 @@ int_enum! {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Encryption method used to encrypt the files in the archive.
 pub enum EncryptionMethod {
     Rar13,
@@ -337,6 +341,7 @@ const WINDOW_DIRECTORY: u16 = 0x00e0;
 const FILE_SIZE_UNKNOWN: u64 = 0xffff_ffff;
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Block containing a file or a directory.
 ///
 /// The block(s?) following this one may contain additional metadata for the file.
@@ -439,6 +444,8 @@ impl FileBlockFlags {
 }
 
 #[derive(Debug)]
+// TODO manually implement Serialize
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Filename encoded either in Unicode or using the OEM code page.
 pub enum Filename {
     /// Filename is encoded in Unicode and can be correctly decoded into UTF-8.
@@ -578,6 +585,7 @@ impl Deref for FileBlock {
 // TODO the service block has basically the same subheads
 // found in SubBlock, so we should parse them accordingly.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Block containing metadata for the previons file block.
 pub struct ServiceBlock {
     /// Service block flags.
@@ -677,6 +685,7 @@ impl ServiceBlockFlags {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 enum ServiceBlockType {
     Comment,
     NtfsFilePermissions,
@@ -705,6 +714,7 @@ impl ServiceBlockType {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Concrete service block type.
 pub enum ServiceBlockKind {
     Comment,
@@ -858,6 +868,7 @@ flags! {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Block containing the archive comment.
 pub struct CommentBlock {
     /// Size of the comment after decompression.
@@ -891,6 +902,7 @@ impl CommentBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ProtectBlock {
     // TODO do we need flags?
     pub data_size: u32,
@@ -938,6 +950,7 @@ int_enum! {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UnixOwnerSubBlock {
     pub user: Vec<u8>,
     pub group: Vec<u8>,
@@ -955,6 +968,7 @@ impl UnixOwnerSubBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MacOsInfoSubBlock {
     pub file_type: u16,
     pub file_creator: u16,
@@ -973,6 +987,7 @@ impl MacOsInfoSubBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ExtendedAttributesSubBlock {
     pub filesystem: ExtendedAttributesFs,
     pub unpacked_data_size: u32,
@@ -983,6 +998,7 @@ pub struct ExtendedAttributesSubBlock {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ExtendedAttributesFs {
     Os2,
     BeOs,
@@ -1007,6 +1023,7 @@ impl ExtendedAttributesSubBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NtfsStreamSubBlock {
     pub unpacked_data_size: u32,
     pub unpack_version: u8,
@@ -1035,6 +1052,7 @@ impl NtfsStreamSubBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SubBlockKind {
     UnixOwner(UnixOwnerSubBlock),
     MacOsInfo(MacOsInfoSubBlock),
@@ -1044,6 +1062,7 @@ pub enum SubBlockKind {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SubBlock {
     pub data_size: u32,
     pub level: u8,
@@ -1099,6 +1118,7 @@ impl SubBlock {
 // and the archive and user name sizes are used to read the archive and user name
 // later in the header, but we don't have much information about this block right now.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SignBlock {
     pub creation_time: u32,
     pub archive_name_size: u16,
@@ -1120,6 +1140,7 @@ impl SignBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AvBlock {
     // TODO flags?
     pub unpack_version: u8,
@@ -1145,6 +1166,7 @@ impl AvBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Block signaling the end of the archive.
 ///
 /// Typically added in multi-volume archives or when there is trailing data not part of the
@@ -1214,6 +1236,7 @@ impl Deref for EndArchiveBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// Block that couldn't be decoded.
 pub struct UnknownBlock {
     /// Tag identifying the block.

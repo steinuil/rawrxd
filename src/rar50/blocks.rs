@@ -5,6 +5,7 @@ use crate::{read::*, size::BlockSize, Error, RarResult};
 use super::{helpers::*, record_iterator::*, MAX_PATH_SIZE};
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Block {
     pub offset: u64,
     pub flags: CommonFlags,
@@ -42,6 +43,7 @@ flags! {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum BlockKind {
     Main(MainBlock),
     File(FileBlock),
@@ -160,6 +162,7 @@ impl BlockSize for Block {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MainBlock {
     pub flags: MainBlockFlags,
     pub volume_number: Option<u64>,
@@ -235,6 +238,7 @@ impl Deref for MainBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LocatorRecord {
     /// Offset of the [`QuickOpenServiceBlock`] relative to [`Block::offset`].
     pub quick_open_record_offset: Option<u64>,
@@ -285,6 +289,7 @@ impl LocatorRecord {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MetadataRecord {
     pub name: Option<Result<String, Vec<u8>>>,
     pub creation_time: Option<Result<time::OffsetDateTime, u64>>,
@@ -349,6 +354,7 @@ impl MetadataRecord {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FileBlock {
     pub flags: FileBlockFlags,
 
@@ -488,6 +494,20 @@ impl std::fmt::Debug for CompressionInfo {
     }
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for CompressionInfo {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+
+        let mut s = serializer.serialize_struct("CompressionInfo", 4)?;
+        s.serialize_field("algorithm", &self.algorithm())?;
+        s.serialize_field("is_solid", &self.is_solid())?;
+        s.serialize_field("method", &self.method())?;
+        s.serialize_field("min_dictionary_size", &self.min_dictionary_size())?;
+        s.end()
+    }
+}
+
 int_enum! {
     pub enum CompressionAlgorithm : u8 {
         Pack5 = 0x00,
@@ -604,6 +624,7 @@ impl Deref for FileBlock {
     }
 }
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ServiceBlock {
     pub flags: ServiceBlockFlags,
     pub unpacked_size: Option<u64>,
@@ -661,6 +682,7 @@ impl ServiceBlockType {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ServiceBlockKind {
     Comment(CommentServiceBlock),
     QuickOpen(QuickOpenServiceBlock),
@@ -671,20 +693,24 @@ pub enum ServiceBlockKind {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 // Does not contain any records.
 pub struct QuickOpenServiceBlock;
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 // Does not contain any records.
 pub struct CommentServiceBlock;
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RecoveryRecordServiceBlock {
     // It is probably illegal for this to be missing.
     pub info: Option<RecoveryRecordInfo>,
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// The recovery record is not used in WinRAR.
 /// Here is more information about it.
 /// https://www.win-rar.com/faq-passwords.html?&L=0
@@ -839,6 +865,7 @@ impl Deref for ServiceBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FileEncryptionRecord {
     pub version: EncryptionVersion,
     pub flags: FileEncryptionRecordFlags,
@@ -887,11 +914,13 @@ impl FileEncryptionRecord {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FileHashRecord {
     pub hash: FileHash,
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum FileHash {
     Blake2Sp([u8; 32]),
     Unknown(u64),
@@ -915,6 +944,7 @@ impl FileHashRecord {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FileTimeRecord {
     pub modification_time: Option<Result<time::OffsetDateTime, u64>>,
     pub creation_time: Option<Result<time::OffsetDateTime, u64>>,
@@ -1008,6 +1038,7 @@ impl FileTimeRecord {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FileVersionRecord {
     pub version_number: u64,
 }
@@ -1023,6 +1054,7 @@ impl FileVersionRecord {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FileSystemRedirectionRecord {
     pub redirection_type: FileSystemRedirectionType,
     pub flags: FileSystemRedirectionRecordFlags,
@@ -1066,6 +1098,7 @@ impl FileSystemRedirectionRecord {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UnixOwnerRecord {
     pub user_name: Option<Result<String, Vec<u8>>>,
     pub group_name: Option<Result<String, Vec<u8>>>,
@@ -1120,6 +1153,7 @@ impl UnixOwnerRecord {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CryptBlock {
     pub encryption_version: EncryptionVersion,
     pub kdf_count: u8,
@@ -1168,6 +1202,7 @@ impl CryptBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct EndArchiveBlock {
     pub flags: EndArchiveBlockFlags,
 }
@@ -1196,6 +1231,7 @@ impl Deref for EndArchiveBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UnknownBlock {
     pub tag: u64,
 }
@@ -1207,6 +1243,7 @@ impl UnknownBlock {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UnknownRecord {
     pub tag: u64,
 }
