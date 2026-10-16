@@ -17,3 +17,6 @@ rstest = "0.23"
 [features]
 arbitrary = ["dep:arbitrary"]
 serde = ["dep:serde"]
+
+[workspace]
+members = ["fuzz", "tools/dump_headers"]

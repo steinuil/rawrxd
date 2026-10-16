@@ -4,6 +4,7 @@ use aho_corasick::AhoCorasick;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 /// File signatures or "magic numbers" of the RAR family of file formats.
 pub enum Signature {
     /// RAR archive compressed by RAR 1.4x
