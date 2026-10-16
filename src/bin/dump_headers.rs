@@ -15,8 +15,6 @@ fn dump_headers(filename: &str) -> RarResult<()> {
 
     println!("{:?}", (format, offset));
 
-    let offset = offset + format.size();
-
     match format {
         Signature::Rar14 => {
             let block_reader = rar14::BlockIterator::new(f, offset)?;

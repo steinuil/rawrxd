@@ -65,7 +65,7 @@ pub fn main() {
 
     for filename in args.skip(1) {
         if let Err(e) = dump_headers(&filename) {
-            eprintln!("{e}")
+            eprintln!("{e:?}")
         }
     }
 }

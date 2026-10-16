@@ -72,7 +72,6 @@ impl Signature {
     /// # let mut file = io::Cursor::new(Vec::new());
     /// let (format, offset) = Signature::search_stream(&mut file)?
     ///     .expect("RAR signature not found");
-    /// let first_block_offset = offset + format.size();
     /// # Ok(())
     /// # }
     /// ```
@@ -113,7 +112,7 @@ impl Signature {
                     i => unreachable!("invalid Aho-Corasick pattern ID: {i}"),
                 };
 
-                Ok(Some((format, start as u64)))
+                Ok(Some((format, start as u64 + format.size())))
             }
         }
     }

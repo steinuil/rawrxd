@@ -28,7 +28,6 @@ impl<R: io::Read + io::Seek> BlockIterator<R> {
     }
 
     fn read_block(&mut self) -> RarResult<Block> {
-        dbg!(&self.next_offset);
         self.reader.seek(io::SeekFrom::Start(self.next_offset))?;
 
         let block = Block::read(&mut self.reader)?;
