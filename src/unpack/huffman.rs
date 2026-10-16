@@ -1,5 +1,19 @@
 use crate::unpack::bit_input::BitInput;
 
+/// Size of the distance alphabet, which bounds the largest encodable distance.
+#[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistanceCodes {
+    Base = 64,
+    Extended = 80,
+}
+
+impl DistanceCodes {
+    pub const fn alphabet_size(self) -> usize {
+        self as usize
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DecodeTable {
     /// Size of the alphabet and `decode_pos` array.
@@ -30,7 +44,6 @@ impl DecodeTable {
     const BC: usize = 20;
 
     const NC: usize = 306;
-    const DCB: usize = 64;
     const DCX: usize = 80;
     const LDC: usize = 16;
     const RC: usize = 44;
@@ -189,98 +202,75 @@ pub struct BlockTables {
 }
 
 impl BlockTables {
-    const SIZEX: usize = DecodeTable::NC + DecodeTable::DCX + DecodeTable::LDC + DecodeTable::RC;
-    const SIZEB: usize = DecodeTable::NC + DecodeTable::DCB + DecodeTable::LDC + DecodeTable::RC;
+    const MAX_TABLE_SIZE: usize =
+        DecodeTable::NC + DecodeTable::DCX + DecodeTable::LDC + DecodeTable::RC;
 
-    pub fn read(inp: &mut BitInput, extra_dist: bool) -> Option<Self> {
+    pub fn read(inp: &mut BitInput, distance_codes: DistanceCodes) -> Option<Self> {
         let bit_lengths = DecodeTable::read_bit_lengths(inp);
 
-        let mut table = [0u8; Self::SIZEX];
-        let mut table = if extra_dist {
-            &mut table[..]
-        } else {
-            &mut table[..Self::SIZEB]
-        };
+        let distance_len = distance_codes.alphabet_size();
+
+        let mut buf = [0u8; Self::MAX_TABLE_SIZE];
+
+        let lengths = &mut buf[..DecodeTable::NC
+            + distance_codes.alphabet_size()
+            + DecodeTable::LDC
+            + DecodeTable::RC];
 
         let mut i = 0;
-        while i < table.len() {
-            let number: u32 = bit_lengths.decode_number(inp);
+        while i < lengths.len() {
+            let code = bit_lengths.decode_number(inp);
 
-            if number < 16 {
-                table[i] = number as u8;
-                i += 1;
-            } else {
-                if number < 18 {
-                    let mut n: u32;
-                    if number == 16 {
-                        n = (inp.get_bits16() >> 13) + 3;
-                        inp.add_bits(3);
-                    } else {
-                        n = (inp.get_bits16() >> 9) + 11;
-                        inp.add_bits(7);
-                    }
+            let (count, length) = match code {
+                // Literal length.
+                0..=15 => (1, code as u8),
 
-                    if i == 0 {
-                        // We cannot have "repeat previous" code at the first position.
-                        // Multiple such code would shift Inp position without changing I,
-                        // which can lead to reading beyond of Inp boundary in multithreading
-                        // mode, where Inp.ExternalBuffer disables bounds check and we just
-                        // reserve a lot of buffer space to not need such check normally.
-                        return None;
-                    } else {
-                        while {
-                            let old_n = n;
-                            n = n.wrapping_sub(1);
-                            old_n > 0 && i < table.len()
-                        } {
-                            table[i] = table[i - 1];
-                            i += 1;
-                        }
-                    }
-                } else {
-                    let mut n: u32;
-                    if number == 18 {
-                        n = (inp.get_bits16() >> 13) + 3;
-                        inp.add_bits(3);
-                    } else {
-                        n = (inp.get_bits16() >> 9) + 11;
-                        inp.add_bits(7);
-                    }
+                // Repeat the previous length for `count` times.
+                // Returns `None` when `i` is 0, because we obviously can't repeat
+                // the -1st length.
+                16 => {
+                    let count = 3 + inp.read_u8(3) as usize;
+                    let length = lengths[i.checked_sub(1)?];
 
-                    while {
-                        let old_n = n;
-                        n = n.wrapping_sub(1);
-                        old_n > 0 && i < table.len()
-                    } {
-                        table[i] = 0;
-                        i += 1;
-                    }
+                    (count, length)
                 }
-            }
+                17 => {
+                    let count = 11 + inp.read_u8(7) as usize;
+                    let length = lengths[i.checked_sub(1)?];
+
+                    (count, length)
+                }
+
+                // Fill with `count` zeroes.
+                18 => {
+                    let count = 3 + inp.read_u8(3) as usize;
+                    (count, 0)
+                }
+                19 => {
+                    let count = 11 + inp.read_u8(7) as usize;
+                    (count, 0)
+                }
+
+                // We constructed the bit_lengths table so it's our fault
+                // if `decode_number` returns a number outside that range.
+                _ => unreachable!("bit_lengths can only contain 20 codes"),
+            };
+
+            let end = (i + count).min(lengths.len());
+            lengths[i..end].fill(length);
+
+            i = end;
         }
 
-        let literals = DecodeTable::new(&table[..DecodeTable::NC]);
-        table = &mut table[DecodeTable::NC..];
-
-        let distance_len = if extra_dist {
-            DecodeTable::DCX
-        } else {
-            DecodeTable::DCB
-        };
-
-        let distances = DecodeTable::new(&table[..distance_len]);
-        table = &mut table[distance_len..];
-
-        let distance_lower_bits = DecodeTable::new(&table[..DecodeTable::LDC]);
-        table = &mut table[DecodeTable::LDC..];
-
-        let repeating_distances = DecodeTable::new(table);
+        let (literals, rest) = lengths.split_at(DecodeTable::NC);
+        let (distances, rest) = rest.split_at(distance_len);
+        let (distance_lower_bits, repeating_distances) = rest.split_at(DecodeTable::LDC);
 
         Some(Self {
-            ld: literals,
-            dd: distances,
-            ldd: distance_lower_bits,
-            rd: repeating_distances,
+            ld: DecodeTable::new(literals),
+            dd: DecodeTable::new(distances),
+            ldd: DecodeTable::new(distance_lower_bits),
+            rd: DecodeTable::new(repeating_distances),
             bd: bit_lengths,
         })
     }
