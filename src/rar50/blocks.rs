@@ -1,6 +1,6 @@
 use std::{io, ops::Deref};
 
-use crate::{read::*, size::BlockSize, Error, RarResult};
+use crate::{read::*, size::BlockSize, ErrorKind, RarResult};
 
 use super::{helpers::*, record_iterator::*, MAX_PATH_SIZE};
 
@@ -80,16 +80,16 @@ impl Block {
 
         let (header_size, vint_size) = read_vint(&mut &header[4..])?;
         if header_size == 0 || header_size > Self::MAX_HEADER_SIZE {
-            return Err(Error::CorruptHeader);
+            return Err(ErrorKind::CorruptHeader.into());
         }
 
         let full_header_size = header_size + vint_size as u64 + 4;
         if full_header_size < Self::MIN_HEADER_SIZE {
-            return Err(Error::CorruptHeader);
+            return Err(ErrorKind::CorruptHeader.into());
         }
 
         header.resize(full_header_size as usize, 0);
-        reader.read_exact(&mut header[7..])?;
+        reader.read_exact(&mut header[Self::MIN_HEADER_SIZE as usize..])?;
 
         let header_crc_ok = crc32fast::hash(&header[4..]) == header_crc32;
 

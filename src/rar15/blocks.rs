@@ -1,7 +1,8 @@
 use std::{io, ops::Deref};
 
 use crate::{
-    checksum::Checksum as _, rar15::crc15, read::*, size::BlockSize, time_conv, Error, RarResult,
+    checksum::Checksum as _, error::ErrorKind, rar15::crc15, read::*, size::BlockSize, time_conv,
+    Error, RarResult,
 };
 
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
@@ -64,7 +65,7 @@ impl Block {
         let header_size = read_u16(reader)?;
 
         if header_size < Self::COMMON_HEADER_SIZE {
-            return Err(Error::CorruptHeader);
+            return Err(ErrorKind::CorruptHeader.into());
         }
 
         let rest_size = header_size - Self::COMMON_HEADER_SIZE;
@@ -797,11 +798,11 @@ impl ServiceBlock {
 
         let sub_data_size = (header_size as usize)
             .checked_sub(name_size)
-            .ok_or(Error::CorruptHeader)?
+            .ok_or(Error::new(ErrorKind::CorruptHeader))?
             .checked_sub(Self::SIZE)
-            .ok_or(Error::CorruptHeader)?
+            .ok_or(Error::new(ErrorKind::CorruptHeader))?
             .checked_sub(if flags.has_salt() { Self::SALT_SIZE } else { 0 })
-            .ok_or(Error::CorruptHeader)?;
+            .ok_or(Error::new(ErrorKind::CorruptHeader))?;
 
         let sub_data = if sub_data_size > 0 {
             Some(read_vec(reader, sub_data_size)?)

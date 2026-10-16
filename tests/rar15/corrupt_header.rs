@@ -1,6 +1,6 @@
 use crate::rar15::block_iterator;
 
-use rawrxd::Error;
+use rawrxd::ErrorKind;
 use rstest::rstest;
 
 /// Archive whose header_size is set to 0, or whose offset + header_size or offset + size
@@ -19,7 +19,7 @@ fn rar15_corrupt_header(#[case] name: &str) {
     let err = iter.find_map(|block| block.err());
 
     assert!(matches!(
-        err,
-        Some(Error::CorruptHeader | Error::UnexpectedEof)
+        err.unwrap().kind(),
+        ErrorKind::CorruptHeader | ErrorKind::UnexpectedEof
     ));
 }

@@ -51,6 +51,6 @@ mod size;
 mod time_conv;
 mod unpack;
 
-pub use error::{Error, RarResult};
+pub use error::{Error, ErrorKind, RarResult};
 pub use signature::Signature;
 pub use size::BlockSize;

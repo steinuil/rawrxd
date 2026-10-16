@@ -1,6 +1,8 @@
 use std::{io, ops::Deref};
 
-use crate::{rar14::checksum14::Checksum14, read::*, size::BlockSize, time_conv, Error, RarResult};
+use crate::{
+    error::ErrorKind, rar14::checksum14::Checksum14, read::*, size::BlockSize, time_conv, RarResult,
+};
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -87,7 +89,7 @@ impl MainBlock {
 
         let header_size = read_u16(reader)?;
         if header_size < Self::MIN_HEADER_SIZE {
-            return Err(Error::CorruptHeader);
+            return Err(ErrorKind::CorruptHeader.into());
         }
         let header_size = header_size - Self::SIGNATURE_SIZE;
 
@@ -239,7 +241,7 @@ impl FileBlock {
         let unpacked_data_checksum = Checksum14(read_u16(reader)?);
         let header_size = read_u16(reader)?;
         if header_size < Self::MIN_HEADER_SIZE {
-            return Err(Error::CorruptHeader);
+            return Err(ErrorKind::CorruptHeader.into());
         }
 
         let modification_time = read_u32(reader)?;

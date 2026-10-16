@@ -3,7 +3,7 @@ use std::{
     io::{self, Cursor},
 };
 
-use rawrxd::{rar50, Signature};
+use rawrxd::{rar50, ErrorKind, Signature};
 
 mod unicode_filename;
 
@@ -20,7 +20,7 @@ fn huge_filename() {
 
     let mut iterator = rar50::BlockIterator::new(Cursor::new(data), 8).unwrap();
     assert!(matches!(
-        iterator.next(),
-        Some(Err(rawrxd::Error::UnexpectedEof))
+        iterator.next().unwrap().unwrap_err().kind(),
+        ErrorKind::UnexpectedEof
     ))
 }

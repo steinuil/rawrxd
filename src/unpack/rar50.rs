@@ -2,7 +2,7 @@ use std::{num::NonZero, ops::Deref};
 
 use crate::{
     unpack::{bit_input::BitInput, huffman::BlockTables},
-    Error, RarResult,
+    ErrorKind, RarResult,
 };
 
 #[derive(Debug, Clone)]
@@ -484,7 +484,7 @@ impl Input {
         // Data left to process.
         let mut data_size = self.read_top - addr;
         if data_size < 0 {
-            return Err(Error::UnexpectedEof);
+            return Err(ErrorKind::UnexpectedEof.into());
         }
         self.block_size -= addr - self.block_start;
 
