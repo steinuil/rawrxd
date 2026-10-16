@@ -1,7 +1,7 @@
 use std::{io, ops::Deref};
 
 use crate::{
-    error::ErrorKind, rar14::checksum14::Checksum14, read::*, size::BlockSize, time_conv, RarResult,
+    checksum::Checksum14, error::ErrorKind, read::*, size::BlockSize, time_conv, RarResult,
 };
 
 #[derive(Debug)]

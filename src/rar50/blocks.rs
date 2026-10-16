@@ -1,33 +1,16 @@
-use std::{fmt, io, ops::Deref};
+use std::{io, ops::Deref};
 
-use crate::{read::*, size::BlockSize, ErrorKind, RarResult};
+use crate::{checksum::Crc32, read::*, size::BlockSize, ErrorKind, RarResult};
 
 use super::{helpers::*, record_iterator::*, MAX_PATH_SIZE};
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct Crc32(pub u32);
-
-impl fmt::Debug for Crc32 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:08x}", self.0)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for Crc32 {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        format!("{:08x}", self.0).serialize(serializer)
-    }
-}
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Block {
     pub offset: u64,
     pub flags: CommonFlags,
-    pub header_crc32: Crc32,
-    pub header_crc_ok: bool,
+    pub header_checksum: Crc32,
+    pub header_checksum_ok: bool,
     pub header_size: u64,
     pub extra_area_size: Option<u64>,
     pub data_size: Option<u64>,
@@ -93,7 +76,7 @@ impl Block {
         // CRC32 followed by at most 3 bytes of vint, given by MAX_HEADER_SIZE.
         let mut header = read_vec(reader, Self::MIN_HEADER_SIZE as usize)?;
 
-        let header_crc32 = read_u32(&mut &header[..4])?;
+        let header_checksum = read_u32(&mut &header[..4])?;
 
         let (header_size, vint_size) = read_vint(&mut &header[4..])?;
         if header_size == 0 || header_size > Self::MAX_HEADER_SIZE {
@@ -108,7 +91,7 @@ impl Block {
         header.resize(full_header_size as usize, 0);
         reader.read_exact(&mut header[Self::MIN_HEADER_SIZE as usize..])?;
 
-        let header_crc_ok = crc32fast::hash(&header[4..]) == header_crc32;
+        let header_checksum_ok = crc32fast::hash(&header[4..]) == header_checksum;
 
         let reader = &mut io::Cursor::new(&header[4 + vint_size as usize..]);
 
@@ -146,8 +129,8 @@ impl Block {
         Ok(Block {
             offset,
             flags,
-            header_crc32: Crc32(header_crc32),
-            header_crc_ok,
+            header_checksum: Crc32(header_checksum),
+            header_checksum_ok,
             header_size: full_header_size,
             extra_area_size,
             data_size,
@@ -388,7 +371,7 @@ pub struct FileBlock {
     pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
 
     /// CRC32 of unpacked file.
-    pub unpacked_data_crc32: Option<Crc32>,
+    pub unpacked_data_checksum: Option<Crc32>,
 
     /// Compression settings for this file.
     pub compression_info: CompressionInfo,
@@ -420,7 +403,7 @@ flags! {
     pub struct FileBlockFlags(u16) {
         pub is_directory = 0x0001;
         pub has_modification_time = 0x0002;
-        pub has_crc32 = 0x0004;
+        pub has_checksum = 0x0004;
         pub unknown_unpacked_size = 0x0008;
     }
 }
@@ -573,7 +556,7 @@ impl FileBlock {
             None
         };
 
-        let unpacked_data_crc32 = if flags.has_crc32() {
+        let unpacked_data_checksum = if flags.has_checksum() {
             Some(Crc32(read_u32(reader)?))
         } else {
             None
@@ -608,7 +591,7 @@ impl FileBlock {
             unpacked_size,
             attributes,
             modification_time,
-            unpacked_data_crc32,
+            unpacked_data_checksum,
             compression_info,
             host_os: (host_os as u8).into(),
             name,
@@ -646,7 +629,7 @@ pub struct ServiceBlock {
     pub flags: ServiceBlockFlags,
     pub unpacked_size: Option<u64>,
     pub modification_time: Option<Result<time::OffsetDateTime, u32>>,
-    pub data_crc32: Option<Crc32>,
+    pub data_checksum: Option<Crc32>,
     pub compression_info: CompressionInfo,
     pub host_os: HostOs,
 
@@ -670,7 +653,7 @@ pub struct ServiceBlock {
 flags! {
     pub struct ServiceBlockFlags(u16) {
         pub has_modification_time = 0x0002;
-        pub has_crc32 = 0x0004;
+        pub has_checksum = 0x0004;
         pub unknown_unpacked_size = 0x0008;
     }
 }
@@ -792,7 +775,7 @@ impl ServiceBlock {
             None
         };
 
-        let data_crc32 = if flags.has_crc32() {
+        let data_checksum = if flags.has_checksum() {
             Some(Crc32(read_u32(reader)?))
         } else {
             None
@@ -858,7 +841,7 @@ impl ServiceBlock {
             flags,
             unpacked_size,
             modification_time,
-            data_crc32,
+            data_checksum,
             compression_info,
             host_os: (host_os as u8).into(),
             encryption,

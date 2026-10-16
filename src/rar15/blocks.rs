@@ -1,28 +1,14 @@
-use std::{fmt, io, ops::Deref};
+use std::{io, ops::Deref};
 
 use crate::{
-    checksum::Checksum as _, error::ErrorKind, rar15::crc15, read::*, size::BlockSize, time_conv,
-    RarResult,
+    checksum::{Checksum as _, Crc32, Crc32Low16, Crc32Low16Hasher},
+    error::ErrorKind,
+    read::*,
+    size::BlockSize,
+    time_conv, RarResult,
 };
 
 use super::{decode_file_name::decode_file_name, extended_time::ExtendedTime, NAME_MAX_SIZE};
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct Checksum16(pub u16);
-
-impl fmt::Debug for Checksum16 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:04x}", self.0)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for Checksum16 {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        format!("{:04x}", self.0).serialize(serializer)
-    }
-}
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -32,11 +18,11 @@ pub struct Block {
     pub offset: u64,
 
     /// Low 16 bytes of the CRC32 hash of the header.
-    pub header_crc16: Checksum16,
+    pub header_checksum: Crc32Low16,
 
     /// Whether the [`Self::header_crc16`] matches the bytes in the header.
     /// `None` if the block skips the checksum.
-    pub header_crc_ok: Option<bool>,
+    pub header_checksum_ok: Option<bool>,
 
     /// Size of the header.
     pub header_size: u16,
@@ -75,7 +61,7 @@ impl Block {
     pub fn read<R: io::Read + io::Seek>(reader: &mut R) -> RarResult<Self> {
         let offset = reader.stream_position()?;
 
-        let header_crc16 = read_u16(reader)?;
+        let header_checksum = Crc32Low16(read_u16(reader)?);
 
         let block_type = read_u8(reader)?;
         let flags = read_u16(reader)?;
@@ -109,26 +95,26 @@ impl Block {
             _ => BlockKind::Unknown(UnknownBlock::read(&mut cursor, flags, block_type)?),
         };
 
-        let crc_end = match HeaderCrcRange::of(&kind) {
-            HeaderCrcRange::WholeHeader => Some(rest.len()),
-            HeaderCrcRange::ParsedFields => Some(cursor.position() as usize),
-            HeaderCrcRange::Unchecked => None,
+        let checksum_end = match HeaderChecksumRange::of(&kind) {
+            HeaderChecksumRange::WholeHeader => Some(rest.len()),
+            HeaderChecksumRange::ParsedFields => Some(cursor.position() as usize),
+            HeaderChecksumRange::Unchecked => None,
         };
 
-        let header_crc_ok = crc_end.map(|end| {
-            let mut hasher = crc15::Hasher::new();
+        let header_checksum_ok = checksum_end.map(|end| {
+            let mut hasher = Crc32Low16Hasher::new();
             hasher.write(&[block_type]);
             hasher.write(&flags.to_le_bytes());
             hasher.write(&header_size.to_le_bytes());
             hasher.write(&rest[..end]);
 
-            hasher.finish() == header_crc16
+            hasher.finish() == header_checksum
         });
 
         Ok(Block {
             offset,
-            header_crc16: Checksum16(header_crc16),
-            header_crc_ok,
+            header_checksum,
+            header_checksum_ok,
             header_size,
             generic_data_size,
             kind,
@@ -158,13 +144,13 @@ impl BlockSize for Block {
     }
 }
 
-enum HeaderCrcRange {
+enum HeaderChecksumRange {
     WholeHeader,
     ParsedFields,
     Unchecked,
 }
 
-impl HeaderCrcRange {
+impl HeaderChecksumRange {
     pub fn of(kind: &BlockKind) -> Self {
         match kind {
             BlockKind::Av(_)
@@ -377,7 +363,7 @@ pub struct FileBlock {
     pub host_os: HostOs,
 
     /// CRC32 hash of the file.
-    pub file_crc32: u32,
+    pub file_checksum: Crc32,
 
     /// Modification time of the file.
     pub modification_time: Result<time::PrimitiveDateTime, u32>,
@@ -491,7 +477,7 @@ impl FileBlock {
         let low_packed_data_size = read_u32(reader)? as u64;
         let low_unpacked_data_size = read_u32(reader)? as u64;
         let host_os = read_u8(reader)?.into();
-        let file_crc32 = read_u32(reader)?;
+        let file_checksum = Crc32(read_u32(reader)?);
         let modification_time = read_u32(reader)?;
         let mut modification_time =
             time_conv::parse_dos_datetime(modification_time).map_err(|_| modification_time);
@@ -570,7 +556,7 @@ impl FileBlock {
             packed_data_size,
             unpacked_data_size,
             host_os,
-            file_crc32,
+            file_checksum,
             modification_time,
             creation_time,
             access_time,
@@ -618,8 +604,8 @@ pub struct ServiceBlock {
     /// OS used to add this block to the archive.
     pub host_os: HostOs,
 
-    /// CRC32 hash of the data section.
-    pub data_crc32: u32,
+    /// CRC32 checksum of the data section.
+    pub data_checksum: Crc32,
 
     /// Modification time of the file.
     pub modification_time: Result<time::PrimitiveDateTime, u32>,
@@ -756,7 +742,7 @@ impl ServiceBlock {
         let low_packed_data_size = read_u32(reader)? as u64;
         let low_unpacked_data_size = read_u32(reader)? as u64;
         let host_os = read_u8(reader)?.into();
-        let data_crc32 = read_u32(reader)?;
+        let data_checksum = Crc32(read_u32(reader)?);
         let modification_time = read_u32(reader)?;
         let mut modification_time =
             time_conv::parse_dos_datetime(modification_time).map_err(|_| modification_time);
@@ -851,7 +837,7 @@ impl ServiceBlock {
             packed_data_size,
             unpacked_data_size,
             host_os,
-            data_crc32,
+            data_checksum,
             modification_time,
             creation_time,
             access_time,
@@ -1011,7 +997,7 @@ pub struct ExtendedAttributesSubBlock {
     pub unpacked_data_size: u32,
     pub unpack_version: u8,
     pub method: u8,
-    pub extended_attributes_crc32: u32,
+    pub extended_attributes_checksum: Crc32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1028,14 +1014,14 @@ impl ExtendedAttributesSubBlock {
         let unpacked_data_size = read_u32(reader)?;
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
-        let extended_attributes_crc32 = read_u32(reader)?;
+        let extended_attributes_checksum = Crc32(read_u32(reader)?);
 
         Ok(ExtendedAttributesSubBlock {
             filesystem,
             unpacked_data_size,
             unpack_version,
             method,
-            extended_attributes_crc32,
+            extended_attributes_checksum,
         })
     }
 }
@@ -1046,7 +1032,7 @@ pub struct NtfsStreamSubBlock {
     pub unpacked_data_size: u32,
     pub unpack_version: u8,
     pub method: u8,
-    pub stream_crc32: u32,
+    pub stream_checksum: Crc32,
     pub stream_name: Vec<u8>,
 }
 
@@ -1055,7 +1041,7 @@ impl NtfsStreamSubBlock {
         let unpacked_data_size = read_u32(reader)?;
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
-        let stream_crc32 = read_u32(reader)?;
+        let stream_checksum = Crc32(read_u32(reader)?);
         let stream_name_size = read_u16(reader)?.clamp(0, NAME_MAX_SIZE - 1) as usize;
         let stream_name = read_vec(reader, stream_name_size)?;
 
@@ -1063,7 +1049,7 @@ impl NtfsStreamSubBlock {
             unpacked_data_size,
             unpack_version,
             method,
-            stream_crc32,
+            stream_checksum,
             stream_name,
         })
     }
@@ -1164,7 +1150,7 @@ pub struct AvBlock {
     pub unpack_version: u8,
     pub method: u8,
     pub av_version: u8,
-    pub av_info_crc32: u32,
+    pub av_info_checksum: Crc32,
 }
 
 impl AvBlock {
@@ -1172,13 +1158,13 @@ impl AvBlock {
         let unpack_version = read_u8(reader)?;
         let method = read_u8(reader)?;
         let av_version = read_u8(reader)?;
-        let av_info_crc32 = read_u32(reader)?;
+        let av_info_checksum = Crc32(read_u32(reader)?);
 
         Ok(AvBlock {
             unpack_version,
             method,
             av_version,
-            av_info_crc32,
+            av_info_checksum,
         })
     }
 }
@@ -1194,7 +1180,7 @@ pub struct EndArchiveBlock {
     pub flags: EndArchiveBlockFlags,
 
     // TODO document this
-    pub archive_data_crc32: Option<u32>,
+    pub archive_data_checksum: Option<Crc32>,
 
     /// Number of the current volume.
     pub volume_number: Option<u16>,
@@ -1208,7 +1194,7 @@ flags! {
 
         /// Store CRC32 of RAR archive (only used in volumes).
         // TODO what?
-        pub(self) has_crc32 = 0x0002;
+        pub(self) has_checksum = 0x0002;
 
         /// Reserve space for end of REV file 7 byte record.
         // TODO what??
@@ -1223,9 +1209,8 @@ impl EndArchiveBlock {
     fn read<R: io::Read>(reader: &mut R, flags: u16) -> io::Result<Self> {
         let flags = EndArchiveBlockFlags::new(flags);
 
-        let archive_data_crc32 = if flags.has_crc32() {
-            let archive_data_crc32 = read_u32(reader)?;
-            Some(archive_data_crc32)
+        let archive_data_checksum = if flags.has_checksum() {
+            Some(Crc32(read_u32(reader)?))
         } else {
             None
         };
@@ -1239,7 +1224,7 @@ impl EndArchiveBlock {
 
         Ok(EndArchiveBlock {
             flags,
-            archive_data_crc32,
+            archive_data_checksum,
             volume_number,
         })
     }

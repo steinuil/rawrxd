@@ -5,7 +5,6 @@
 
 mod block_iterator;
 mod blocks;
-mod crc15;
 mod decode_file_name;
 mod extended_time;
 

@@ -39,7 +39,7 @@
 
 #[macro_use]
 mod macros;
-mod checksum;
+pub mod checksum;
 pub mod compat;
 mod error;
 pub mod rar14;
