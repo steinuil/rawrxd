@@ -208,8 +208,6 @@ impl BlockTables {
     pub fn read(inp: &mut BitInput, distance_codes: DistanceCodes) -> Option<Self> {
         let bit_lengths = DecodeTable::read_bit_lengths(inp);
 
-        let distance_len = distance_codes.alphabet_size();
-
         let mut buf = [0u8; Self::MAX_TABLE_SIZE];
 
         let lengths = &mut buf[..DecodeTable::NC
@@ -263,7 +261,7 @@ impl BlockTables {
         }
 
         let (literals, rest) = lengths.split_at(DecodeTable::NC);
-        let (distances, rest) = rest.split_at(distance_len);
+        let (distances, rest) = rest.split_at(distance_codes.alphabet_size());
         let (distance_lower_bits, repeating_distances) = rest.split_at(DecodeTable::LDC);
 
         Some(Self {
