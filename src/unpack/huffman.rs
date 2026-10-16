@@ -4,7 +4,10 @@ use crate::unpack::bit_input::BitInput;
 #[repr(usize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DistanceCodes {
+    /// Distances up to 4 GiB (RAR 5.0).
     Base = 64,
+
+    /// Distances up to 1 TiB (RAR 7.0).
     Extended = 80,
 }
 
@@ -41,14 +44,13 @@ impl Default for DecodeTable {
 }
 
 impl DecodeTable {
-    const BC: usize = 20;
+    const BIT_LENGTH_CODES: usize = 20;
 
-    const NC: usize = 306;
-    const DCX: usize = 80;
-    const LDC: usize = 16;
-    const RC: usize = 44;
+    const LITERAL_CODES: usize = 306;
+    const DISTANCE_LOWER_BITS_CODES: usize = 16;
+    const REPEATING_DISTANCE_CODES: usize = 44;
 
-    const BC_ESCAPE: u8 = 0xf;
+    const BIT_LENGTH_ESCAPE: u8 = 0xf;
 
     const NC20: usize = 298;
     const NC30: usize = 299;
@@ -57,13 +59,13 @@ impl DecodeTable {
     const LARGEST_TABLE_SIZE: usize = 306;
 
     fn read_bit_lengths(inp: &mut BitInput) -> Self {
-        let mut bit_length = [0u8; Self::BC];
+        let mut bit_length = [0u8; Self::BIT_LENGTH_CODES];
 
         let mut slots = bit_length.iter_mut();
         while let Some(slot) = slots.next() {
             let length = inp.read_u8(4);
 
-            if length != Self::BC_ESCAPE {
+            if length != Self::BIT_LENGTH_ESCAPE {
                 *slot = length;
                 continue;
             }
@@ -120,7 +122,7 @@ impl DecodeTable {
         }
 
         let quick_bits = match lengths.len() {
-            Self::NC | Self::NC20 | Self::NC30 => Self::MAX_QUICK_DECODE_BITS,
+            Self::LITERAL_CODES | Self::NC20 | Self::NC30 => Self::MAX_QUICK_DECODE_BITS,
             _ => Self::MAX_QUICK_DECODE_BITS.saturating_sub(3),
         } as u32;
 
@@ -202,18 +204,20 @@ pub struct BlockTables {
 }
 
 impl BlockTables {
-    const MAX_TABLE_SIZE: usize =
-        DecodeTable::NC + DecodeTable::DCX + DecodeTable::LDC + DecodeTable::RC;
+    const MAX_TABLE_SIZE: usize = DecodeTable::LITERAL_CODES
+        + DistanceCodes::Extended.alphabet_size()
+        + DecodeTable::DISTANCE_LOWER_BITS_CODES
+        + DecodeTable::REPEATING_DISTANCE_CODES;
 
     pub fn read(inp: &mut BitInput, distance_codes: DistanceCodes) -> Option<Self> {
         let bit_lengths = DecodeTable::read_bit_lengths(inp);
 
         let mut buf = [0u8; Self::MAX_TABLE_SIZE];
 
-        let lengths = &mut buf[..DecodeTable::NC
+        let lengths = &mut buf[..DecodeTable::LITERAL_CODES
             + distance_codes.alphabet_size()
-            + DecodeTable::LDC
-            + DecodeTable::RC];
+            + DecodeTable::DISTANCE_LOWER_BITS_CODES
+            + DecodeTable::REPEATING_DISTANCE_CODES];
 
         let mut i = 0;
         while i < lengths.len() {
@@ -260,9 +264,10 @@ impl BlockTables {
             i = end;
         }
 
-        let (literals, rest) = lengths.split_at(DecodeTable::NC);
+        let (literals, rest) = lengths.split_at(DecodeTable::LITERAL_CODES);
         let (distances, rest) = rest.split_at(distance_codes.alphabet_size());
-        let (distance_lower_bits, repeating_distances) = rest.split_at(DecodeTable::LDC);
+        let (distance_lower_bits, repeating_distances) =
+            rest.split_at(DecodeTable::DISTANCE_LOWER_BITS_CODES);
 
         Some(Self {
             ld: DecodeTable::new(literals),
